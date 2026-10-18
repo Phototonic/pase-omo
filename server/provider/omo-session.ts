@@ -364,6 +364,8 @@ export class OmoSession {
   private watchStates: ReadonlyMap<string, WatchChildState> = new Map();
   /** True while the turn's agent loop ended but background work keeps it open. */
   private holding = false;
+  private probeFailures = 0;
+  private probeNoticeShown = false;
   /** Bumped on every settle and every turn boundary, so a stale probe can tell it lost. */
   private settleGeneration = 0;
   private settleEvent: OmoEvent | undefined;
@@ -613,6 +615,8 @@ export class OmoSession {
     this.settleGeneration += 1;
     this.holding = false;
     this.settleEvent = undefined;
+    this.probeFailures = 0;
+    this.probeNoticeShown = false;
   }
 
   /**
@@ -637,6 +641,20 @@ export class OmoSession {
   private async settle(generation: number): Promise<void> {
     const probe = await this.probeOccupancy();
     if (generation !== this.settleGeneration || this.activeTurnId === null || this.closed) return;
+    if (probe.problem !== undefined) {
+      this.probeFailures += 1;
+      if (this.probeFailures >= 3 && !this.probeNoticeShown) {
+        this.probeNoticeShown = true;
+        this.item({ type: "assistant_message", id: `${this.activeTurnId}-background-state`, text: "Background work state is unavailable. This turn remains open because completion cannot be verified. Retrying every 15 seconds; inspect the trial logs or stop the turn to recover." });
+        this.options.log(`background state unavailable: ${probe.problem}`);
+      }
+    } else {
+      this.probeFailures = 0;
+      if (this.probeNoticeShown) {
+        this.item({ type: "assistant_message", id: `${this.activeTurnId}-background-state`, text: "Background work state is readable again. Completion tracking has recovered." });
+        this.probeNoticeShown = false;
+      }
+    }
     if (probe.openWork !== undefined) this.openWork = probe.openWork;
     if (probe.bashSessions !== undefined) this.bashChildren = probe.bashSessions;
     if (probe.openWork !== undefined || probe.bashSessions !== undefined) this.publishWatchChildren();
@@ -657,6 +675,7 @@ export class OmoSession {
     occupied: boolean;
     openWork?: OpenWork[];
     bashSessions?: WatchChild[];
+    problem?: string;
   }> {
     try {
       const cwd = this.state.cwd ?? this.config.cwd;
@@ -666,9 +685,9 @@ export class OmoSession {
         omoSessionId ? readTaskRecords(cwd, omoSessionId, this.sessionEnv()) : [],
         omoSessionId ? readOpenWork(cwd, omoSessionId, this.sessionEnv()) : [],
       ]);
-      if (openWork === "unreadable") return { occupied: true };
+      if (openWork === "unreadable") return { occupied: true, problem: "workpool or workflow state is unreadable" };
       const bash = await readBash(raw, omoSessionId);
-      if (bash === "unreadable") return { occupied: true };
+      if (bash === "unreadable") return { occupied: true, problem: "background shell state is unreadable" };
       const input: OccupancyInput = {
         wakes: [...this.wakes.values()],
         flags: stateFlags(raw),
@@ -684,8 +703,7 @@ export class OmoSession {
       };
       return { occupied: isOccupied(input), openWork, bashSessions: bash.sessions };
     } catch (error) {
-      this.options.log(`occupancy probe failed: ${describe(error)}`);
-      return { occupied: true };
+      return { occupied: true, problem: describe(error) };
     }
   }
 
@@ -714,7 +732,7 @@ export class OmoSession {
     this.taskTimer = setTimeout(() => {
       this.taskTimer = null;
       void this.scanTasks().finally(() => {
-        this.scheduleTaskScan(this.activeTurnId === null ? TASK_POLL_IDLE_MS : TASK_POLL_ACTIVE_MS);
+        this.scheduleTaskScan(this.activeTurnId === null || this.probeFailures >= 3 ? TASK_POLL_IDLE_MS : TASK_POLL_ACTIVE_MS);
       });
     }, delayMs);
     this.taskTimer.unref?.();

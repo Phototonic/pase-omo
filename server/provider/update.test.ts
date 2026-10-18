@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import {
   applyOmoUpdate,
@@ -6,6 +6,8 @@ import {
   omoUpdateJob,
   resetOmoUpdateJob,
   runOmoUpdateJob,
+  installCommand,
+  omoUpdateStatus,
 } from "./update.js";
 import { OmoSessionRegistry, type LiveOmoSession } from "./session-registry.js";
 import type { OmoUpdateJob } from "../../shared/update.js";
@@ -24,8 +26,34 @@ import type { OmoUpdateJob } from "../../shared/update.js";
  * made a completed update surface as `Plugin RPC timed out`.
  */
 
+beforeEach(() => vi.stubEnv("PASEO_OMO_DISABLE_UPDATE", "0"));
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   resetOmoUpdateJob();
+});
+
+it("rejects a pinned trial update before suspending sessions or running an installer", async () => {
+  vi.stubEnv("PASEO_OMO_DISABLE_UPDATE", "1");
+  const log: string[] = [];
+  const deps = { registry: registryOf([fakeSession("a", log)]), runInstall: async () => { log.push("install"); } };
+  await expect(applyOmoUpdate({ install: true }, undefined, deps)).rejects.toThrow("pinned isolated trial");
+  await expect(runOmoUpdateJob({ install: true }, newJob(true), deps)).rejects.toThrow("pinned isolated trial");
+  expect(() => installCommand()).toThrow("pinned isolated trial");
+  expect(log).toEqual([]);
+  expect(omoUpdateJob()).toBeNull();
+});
+
+it("does not contact the update registry or advertise a global install in a pinned trial", async () => {
+  vi.stubEnv("PASEO_OMO_DISABLE_UPDATE", "1");
+  const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not fetch"));
+  try {
+    const status = await omoUpdateStatus({}, undefined, new OmoSessionRegistry());
+    expect(fetch).not.toHaveBeenCalled();
+    expect(status).toMatchObject({ availableVersion: null, updateAvailable: false });
+    expect(status.error).toContain("pinned isolated trial");
+    expect(status.installCommand).toContain("disabled");
+  } finally { fetch.mockRestore(); }
 });
 
 function fakeSession(id: string, log: string[], failOn?: "suspend" | "resume"): LiveOmoSession {

@@ -188,6 +188,31 @@ describe("a turn held open by background work", () => {
     expect(parentTurns(emit)).toEqual(["started"]);
   });
 
+  it("shows one persistent-state diagnostic, then replaces it after recovery", async () => {
+    mocks.readTaskRecords.mockRejectedValue(new Error("task state unreadable"));
+    const { process, session, emit } = createSession();
+    process.emit({ type: "agent_start" });
+    process.emit({ type: "agent_end" });
+    await session["pendingSettle"];
+    for (let i = 0; i < 3; i++) {
+      session["recheck"]();
+      await session["pendingSettle"];
+    }
+    const notices = () => events(emit).filter((event) => event.type === "timeline.item")
+      .map((event) => event.item as { id: string; text?: string })
+      .filter((item) => item.id.endsWith("-background-state"));
+    expect(notices()).toHaveLength(1);
+    expect(notices()[0]?.text).toContain("completion cannot be verified");
+    expect(parentTurns(emit)).toEqual(["started"]);
+    mocks.readTaskRecords.mockResolvedValue([]);
+    session["recheck"]();
+    await session["pendingSettle"];
+    expect(notices()).toHaveLength(2);
+    expect(notices()[1]?.id).toBe(notices()[0]?.id);
+    expect(notices()[1]?.text).toContain("recovered");
+    expect(parentTurns(emit)).toEqual(["started", "completed"]);
+  });
+
   it("stays open while the agent still reports itself busy", async () => {
     mocks.getState = async () => ({ isBashRunning: true });
     const { process, session, emit } = createSession();

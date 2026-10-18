@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import {
   isTerminalTask,
@@ -20,7 +20,13 @@ import {
 
 const roots: string[] = [];
 
+beforeEach(() => {
+  vi.stubEnv("PASEO_OMO_TASK_STATE_DIR", "");
+  vi.stubEnv("OMO_HERDR_DAG_TASK_STATE_DIR", "");
+});
+
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -139,12 +145,33 @@ it("reads only the records this session spawned", async () => {
     join(dir, "st_other.json"),
     JSON.stringify(record({ task_id: "st_other", parent_session_id: "another-session" })),
   );
-  await writeFile(join(dir, "st_broken.json"), "{ not json");
   await writeFile(join(dir, "notes.txt"), "ignored");
 
   const records = await readTaskRecords(root, "omo-session-1");
 
   expect(records.map((entry) => entry.task_id)).toEqual(["st_mine"]);
+});
+
+it.each([
+  ["interrupted", "canceled"], ["cancelled", "canceled"], ["lost", "failed"],
+] as const)("settles the engine's %s task as %s without requiring terminal_at", (status, expected) => {
+  const task = record({ status });
+  expect(isTerminalTask(task)).toBe(true);
+  const result = taskChildEvents({ ...context, record: task, previous: undefined });
+  expect(result.events).toContainEqual(expect.objectContaining({ type: "session.turn", state: expected }));
+  expect(result.state.closed).toBe(true);
+});
+
+it("keeps corrupt task state distinguishable from an empty store and recovers after repair", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omo-task-corrupt-"));
+  roots.push(root);
+  const dir = join(root, ".omo", "senpi-task", "tasks");
+  await mkdir(dir, { recursive: true });
+  const file = join(dir, "st_broken.json");
+  await writeFile(file, "{not json");
+  await expect(readTaskRecords(root, "omo-session-1")).rejects.toThrow("Cannot read OmO task record");
+  await writeFile(file, JSON.stringify(record()));
+  expect(await readTaskRecords(root, "omo-session-1")).toHaveLength(1);
 });
 
 it("treats a project with no task directory as having no children", async () => {

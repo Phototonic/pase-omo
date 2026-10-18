@@ -51,6 +51,8 @@ const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   "failed",
   "cancelled",
   "canceled",
+  "interrupted",
+  "lost",
 ]);
 
 export function isTerminalTask(record: TaskRecord): boolean {
@@ -60,7 +62,11 @@ export function isTerminalTask(record: TaskRecord): boolean {
 
 function failed(record: TaskRecord): boolean {
   const status = (record.status ?? "").toLowerCase();
-  return status === "error" || status === "failed";
+  return status === "error" || status === "failed" || status === "lost";
+}
+
+function canceled(record: TaskRecord): boolean {
+  return ["cancelled", "canceled", "interrupted"].includes((record.status ?? "").toLowerCase());
 }
 
 /** The line the child's own timeline opens with: what was asked, and of whom. */
@@ -149,7 +155,7 @@ export function taskChildEvents({ record, parentSessionId, cwd, previous }: Chil
     type: "session.turn",
     sessionId,
     turnId: `${sessionId}-run`,
-    state: failed(record) ? "failed" : "completed",
+    state: failed(record) ? "failed" : canceled(record) ? "canceled" : "completed",
     ...(failed(record) ? { error: { message: `Task ${status}` } } : {}),
   });
   events.push({ type: "session.closed", sessionId });
@@ -172,8 +178,9 @@ export async function readTaskRecords(
   let names: string[];
   try {
     names = await readdir(dir);
-  } catch {
-    return [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
   }
   const records: TaskRecord[] = [];
   for (const name of names) {
@@ -187,9 +194,11 @@ export async function readTaskRecords(
       // that has ever run in this project.
       if (record.parent_session_id !== omoSessionId) continue;
       records.push(record);
-    } catch {
-      // A record being written right now is read again on the next pass.
-      continue;
+    } catch (error) {
+      // A removed record is harmless. A torn/unreadable record is unknown work,
+      // so the parent must retain its last state and retry instead of completing.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new Error(`Cannot read OmO task record ${name}`, { cause: error });
     }
   }
   return records;

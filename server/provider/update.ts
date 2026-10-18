@@ -23,6 +23,15 @@ import { omoSessionRegistry, type OmoSessionRegistry } from "./session-registry.
 const REGISTRY_URL = `https://registry.npmjs.org/${OMO_PACKAGE}`;
 const REGISTRY_TIMEOUT_MS = 10_000;
 const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+const PINNED_UPDATE_NOTICE = "OmO updates are disabled for this pinned isolated trial. Use the trial's documented local update procedure.";
+
+function updatesDisabled(): boolean {
+  return process.env.PASEO_OMO_DISABLE_UPDATE === "1";
+}
+
+function requireUpdatesEnabled(): void {
+  if (updatesDisabled()) throw new Error(PINNED_UPDATE_NOTICE);
+}
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -89,6 +98,7 @@ export async function availableOmoVersion(): Promise<string> {
  * machine without Bun.
  */
 export function installCommand(): { command: string; args: string[] } {
+  requireUpdatesEnabled();
   const bunHome = join(homedir(), ".bun", "bin", process.platform === "win32" ? "bun.exe" : "bun");
   const bun = existsSync(bunHome) ? bunHome : fromPathNamed("bun");
   if (bun) return { command: bun, args: ["add", "-g", `${OMO_PACKAGE}@${OMO_CHANNEL}`] };
@@ -176,7 +186,8 @@ export async function omoUpdateStatus(
   let availableVersion: string | null = null;
   let error: string | null = null;
   try {
-    availableVersion = await availableOmoVersion();
+    if (updatesDisabled()) error = PINNED_UPDATE_NOTICE;
+    else availableVersion = await availableOmoVersion();
   } catch (failure) {
     error = describe(failure);
   }
@@ -213,6 +224,7 @@ export async function runOmoUpdateJob(
   job: OmoUpdateJob,
   deps: ApplyOmoUpdateDeps = {},
 ): Promise<void> {
+  if (input.install) requireUpdatesEnabled();
   const registry = deps.registry ?? omoSessionRegistry;
   const install = deps.runInstall ?? runInstall;
   const readVersion = deps.readVersion ?? installedOmoVersion;
@@ -270,6 +282,7 @@ export async function applyOmoUpdate(
   _context: unknown,
   deps: ApplyOmoUpdateDeps = {},
 ): Promise<ApplyOmoUpdatePayload> {
+  if (input.install) requireUpdatesEnabled();
   if (isOmoUpdateJobRunning(currentJob) && currentJob !== null) {
     return { started: false, alreadyRunning: true, job: omoUpdateJob() as OmoUpdateJob };
   }
