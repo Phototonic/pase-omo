@@ -53,6 +53,13 @@ describe("unified server registrations", () => {
     expect(rec.providers).toBe(1);
   });
 
+  it("registers usage sources with IDs distinct from Paseo builtins", () => {
+    const { ctx, rec } = recordingServer();
+    contribute(ctx as never);
+    expect(rec.usageSources).toEqual(["omo-codex", "omo-zai"]);
+    expect(duplicates(rec.usageSources)).toEqual([]);
+  });
+
   it("ships the provider icon asset it registers", () => {
     // Regression: the daemon refuses to load the plugin with
     // `Invalid plugin provider icon "icon.svg"` when the asset is not shipped.

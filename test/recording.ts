@@ -97,6 +97,7 @@ export function recordingClient(options: { agents?: AgentStub[]; workspaces?: Wo
 export type ServerRecording = {
   handlers: string[];
   providers: number;
+  usageSources: string[];
   events: string[];
   befores: string[];
   settings: number;
@@ -107,7 +108,7 @@ export type ServerRecording = {
 
 export function recordingServer() {
   const rec: ServerRecording = {
-    handlers: [], providers: 0, events: [], befores: [], settings: 0, released: 0,
+    handlers: [], providers: 0, usageSources: [], events: [], befores: [], settings: 0, released: 0,
     outstanding: new Set<string>(),
   };
   // Per-subscription idempotent release, for the same reason as the client side.
@@ -121,6 +122,7 @@ export function recordingServer() {
   const ctx = {
     handle(contract: { name: string }) { rec.handlers.push(contract.name); },
     registerProvider() { rec.providers += 1; },
+    registerUsageSource(source: { id: string }) { rec.usageSources.push(source.id); },
     registerSettings() { rec.settings += 1; },
     on(event: string) { rec.events.push(event); return release(`on:${event}`); },
     before(event: string) { rec.befores.push(event); return release(`before:${event}`); },

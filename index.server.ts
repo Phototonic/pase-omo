@@ -11,6 +11,7 @@ import { publishTodoCard } from "./server/provider/todo-card.js";
 import { createOmoProvider } from "./server/provider/provider.js";
 import { registerUpdateHandlers } from "./server/provider/update.js";
 import { registerWorkerHandlers } from "./server/workers/workers.js";
+import { registerUsageSources } from "./server/usage/sources.js";
 import { getSnapshotRpc, listProjectsRpc, listSessionsRpc } from "./shared/dag.js";
 import { locateDagRpc } from "./shared/navigate.js";
 import { activeRunsRpc, agentDagSnapshotRpc } from "./shared/row.js";
@@ -50,6 +51,7 @@ export default function contribute(server: PluginServerContext): PluginCleanup {
   const publisher = createPublisher();
 
   server.registerProvider(createOmoProvider());
+  registerUsageSources(server);
 
   server.handle(listSessionsRpc, listSessions);
   server.handle(getSnapshotRpc, getSnapshot);
