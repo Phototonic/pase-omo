@@ -80,15 +80,22 @@ function modelFields(record: Json): Partial<DagTask> {
   const effective = object(record.effective_model);
   const resolved = object(record.resolved_model);
   const resolvedRef = modelRef(resolved);
-  const ref = modelRef(effective) ?? resolvedRef ?? text(record.model, 256);
+  const effectiveDisplay = text(effective?.display, 256);
+  const effectiveId = text(effective?.model_id, 128);
+  const hasEffective = Boolean(modelRef(effective) || effectiveDisplay || effectiveId);
+  // A partial effective record must not inherit a stale route's identity.
+  const ref = hasEffective
+    ? modelRef(effective) ?? (effectiveDisplay?.includes("/") ? effectiveDisplay : undefined)
+    : resolvedRef ?? text(record.model, 256);
   const requested = modelRef(object(record.requested_model));
   const friendly = (value: unknown) => {
     const display = text(value, 256);
     return display && !display.includes("/") ? display : undefined;
   };
-  const display = friendly(effective?.display)
-    ?? ((!modelRef(effective) || modelRef(effective) === resolvedRef) ? friendly(resolved?.display) : undefined);
-  const id = (ref ?? text(effective?.display, 256) ?? text(resolved?.display, 256))?.split("/").at(-1);
+  const display = hasEffective
+    ? friendly(effectiveDisplay) ?? (ref && ref === resolvedRef ? friendly(resolved?.display) : undefined)
+    : friendly(resolved?.display);
+  const id = (ref ?? (hasEffective ? effectiveId ?? effectiveDisplay : text(resolved?.display, 256)))?.split("/").at(-1);
   const label = display ?? (id?.startsWith("gpt-")
     ? id.replace(/^gpt-(\d+(?:\.\d+)?)/, "GPT-$1").replace(/-(?=[a-z])/g, " ").replace(/\b[a-z]/g, c => c.toUpperCase())
     : id);
