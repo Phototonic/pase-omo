@@ -112,10 +112,15 @@ graph, where there is room for it.
 | **OmO provider** | OmO in Paseo's model picker, with streaming, tool calls and child sessions in Paseo's chat |
 | **OmO DAG** | The board and card views, from the sidebar, the command center or the workspace tab bar |
 | **Chat DAG card** | One card per run in the timeline, drawn once the run settles |
+| **Worker conversations** | Saved assistant messages, reasoning and tool results in each task's subagent tab; history is restored on reconnect |
 | **OmO Approvals** | Pending confirmations, choices and questions for the current agent |
 | **OmO Folders** | Sessions, runs and tasks grouped into a browsable tree |
 | **OmO update** | Pause every OmO session, update OmO, and resume them where they were |
 | **Harness wrap** | OmO's harness XML, memory notes and error envelopes folded into compact bars |
+
+Worker conversations follow complete messages persisted by OmO, rather than
+token-by-token deltas. Reopening the parent restores the same saved worker
+history without starting another task.
 
 ---
 

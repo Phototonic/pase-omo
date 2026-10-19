@@ -16,6 +16,7 @@ import { todoItems, toolCallDetail, toolResultText } from "./tool-detail.js";
 import { finalTodoPublication, holdTodo, type TodoPublishItem } from "./todo-publish.js";
 import { lastPublishedTodo, rememberPublishedTodo } from "./todo-memory.js";
 import { isTerminalTask, readTaskRecords, taskChildEvents, type TaskState } from "./task-watch.js";
+import { TaskTranscriptReader } from "./task-transcript.js";
 import {
   foldWakeEvent,
   isOccupied,
@@ -352,6 +353,7 @@ export class OmoSession {
   private suspended = false;
   /** What has already been published for each `task()` run, keyed by task id. */
   private readonly taskStates = new Map<string, TaskState>();
+  private readonly taskTranscripts = new TaskTranscriptReader();
   private taskTimer: ReturnType<typeof setTimeout> | null = null;
   private taskScanning = false;
   /** Latest full `wake_source_state` snapshot per source. */
@@ -572,11 +574,15 @@ export class OmoSession {
     try {
       for (const record of await readTaskRecords(cwd, omoSessionId, this.sessionEnv())) {
         if (this.closed) return;
+        if (this.taskStates.get(record.task_id)?.closed) continue;
+        const transcript = await this.taskTranscripts.read(cwd, record, this.sessionEnv());
+        if (this.closed) return;
         const { events, state } = taskChildEvents({
           record,
           parentSessionId: this.sessionId,
           cwd,
           previous: this.taskStates.get(record.task_id),
+          transcript,
         });
         this.taskStates.set(record.task_id, state);
         for (const event of events) this.emit(event);

@@ -1,7 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { ProviderEvent } from "@getpaseo/plugin/server/provider";
+import { createHash } from "node:crypto";
+import type { ProviderEvent, ProviderTimelineItem } from "@getpaseo/plugin/server/provider";
 
 import { taskStateDir } from "../task-state";
 
@@ -34,6 +35,7 @@ export interface TaskRecord {
   model?: string;
   started_at?: string;
   terminal_at?: string;
+  final_response?: string;
 }
 
 /** What the watcher already told the host about one task. */
@@ -41,6 +43,8 @@ export interface TaskState {
   status: string;
   opened: boolean;
   closed: boolean;
+  /** Last published item fingerprints; unchanged polls produce no timeline events. */
+  transcript?: Record<string, string>;
 }
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
@@ -91,6 +95,7 @@ export interface ChildEventInput {
   parentSessionId: string;
   cwd: string;
   previous: TaskState | undefined;
+  transcript?: readonly ProviderTimelineItem[];
 }
 
 export interface ChildEventResult {
@@ -105,7 +110,7 @@ export interface ChildEventResult {
  * row is how the run is reachable at all, and a run that finished while nobody
  * was watching is exactly the one worth keeping.
  */
-export function taskChildEvents({ record, parentSessionId, cwd, previous }: ChildEventInput): ChildEventResult {
+export function taskChildEvents({ record, parentSessionId, cwd, previous, transcript = [] }: ChildEventInput): ChildEventResult {
   const status = (record.status ?? "running").toLowerCase();
   const sessionId = record.task_id;
   const events: ProviderEvent[] = [];
@@ -113,6 +118,7 @@ export function taskChildEvents({ record, parentSessionId, cwd, previous }: Chil
     status,
     opened: previous?.opened ?? false,
     closed: previous?.closed ?? false,
+    ...(previous?.transcript ? { transcript: { ...previous.transcript } } : {}),
   };
 
   if (state.closed) return { events, state };
@@ -135,9 +141,14 @@ export function taskChildEvents({ record, parentSessionId, cwd, previous }: Chil
     });
     events.push({ type: "session.turn", sessionId, turnId: `${sessionId}-run`, state: "started" });
     state.opened = true;
-  } else if (previous !== undefined && previous.status === status) {
-    // Nothing moved, so nothing is said: every event here is another row.
-    return { events, state };
+  }
+
+  for (const item of transcript) {
+    const fingerprint = createHash("sha256").update(JSON.stringify(item)).digest("hex");
+    if (state.transcript?.[item.id] === fingerprint) continue;
+    state.transcript ??= {};
+    state.transcript[item.id] = fingerprint;
+    events.push({ type: "timeline.item", sessionId, item });
   }
 
   if (!isTerminalTask(record)) return { events, state };
