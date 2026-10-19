@@ -197,7 +197,7 @@ export class OmoProcess {
     if (!child || this.exited) {
       // Nothing to wait for: a process that never spawned would otherwise leave
       // `whenExited` pending forever.
-      this.resolveExit?.();
+      this.finish(null, null);
       return;
     }
     try {

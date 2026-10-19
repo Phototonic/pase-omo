@@ -1,13 +1,8 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
-/**
- * OmO ships on the beta dist-tag only ("Beta channel only: npm i -g omo-ai@beta"
- * in its own package description), so there is one channel to compare against
- * and one tag to install.
- */
+/** OmO's own CLI owns update channel and installation selection. */
 export const OMO_PACKAGE = "omo-ai";
-export const OMO_CHANNEL = "beta";
 
 /**
  * Where a run of the update is.

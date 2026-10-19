@@ -1,7 +1,5 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { PluginCleanup } from "@getpaseo/plugin";
@@ -10,14 +8,13 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import {
   applyOmoUpdateRpc,
   omoUpdateStatusRpc,
-  OMO_CHANNEL,
   OMO_PACKAGE,
   type ApplyOmoUpdateInput,
   type ApplyOmoUpdatePayload,
   type OmoUpdateJob,
   type OmoUpdateStatusPayload,
 } from "../../shared/update.js";
-import { fromPathNamed, resolveOmoLaunch } from "./omo-cli.js";
+import { resolveOmoLaunch } from "./omo-cli.js";
 import { omoSessionRegistry, type OmoSessionRegistry } from "./session-registry.js";
 
 const REGISTRY_URL = `https://registry.npmjs.org/${OMO_PACKAGE}`;
@@ -59,12 +56,25 @@ function manifestCandidates(): string[] {
   } catch {
     // An unresolvable CLI is reported by the caller through the version being null.
   }
-  candidates.push(join(homedir(), ".bun", "install", "global", "node_modules", OMO_PACKAGE, "package.json"));
   return candidates;
 }
 
 /** Version of the OmO the daemon would launch, or null when no manifest names it. */
 export async function installedOmoVersion(): Promise<string | null> {
+  // The official standalone binary has no package.json. Ask the same executable
+  // the provider launches, rather than reporting an unrelated global package.
+  try {
+    const launch = resolveOmoLaunch();
+    const version = await new Promise<string | null>((resolve) => {
+      const child = spawn(launch.command, [...launch.base, "--version"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      let output = "";
+      child.stdout.on("data", (chunk: Buffer) => { output = (output + chunk.toString("utf8")).slice(-4096); });
+      const timer = setTimeout(() => { child.kill(); resolve(null); }, 10_000);
+      child.on("error", () => { clearTimeout(timer); resolve(null); });
+      child.on("exit", (code) => { clearTimeout(timer); resolve(code === 0 ? output.match(/\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/)?.[1] ?? null : null); });
+    });
+    if (version !== null) return version;
+  } catch { /* Fall back to the launched script's manifest for older CLIs. */ }
   for (const candidate of manifestCandidates()) {
     try {
       const manifest = JSON.parse(await readFile(candidate, "utf8")) as { name?: unknown; version?: unknown };
@@ -78,33 +88,47 @@ export async function installedOmoVersion(): Promise<string | null> {
 }
 
 /** Newest version on OmO's release channel. Throws when the registry is unreachable. */
-export async function availableOmoVersion(): Promise<string> {
+export async function availableOmoVersion(installedVersion?: string | null): Promise<string> {
+  const channel = installedVersion?.includes("-") ? "beta" : "latest";
   const response = await fetch(REGISTRY_URL, {
     headers: { accept: "application/vnd.npm.install-v1+json" },
     signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`npm registry answered ${response.status}`);
   const payload = (await response.json()) as { "dist-tags"?: Record<string, unknown> };
-  const version = payload["dist-tags"]?.[OMO_CHANNEL];
-  if (typeof version !== "string") throw new Error(`npm registry has no ${OMO_CHANNEL} tag for ${OMO_PACKAGE}`);
+  const version = payload["dist-tags"]?.[channel];
+  if (typeof version !== "string") throw new Error(`npm registry has no ${channel} tag for ${OMO_PACKAGE}`);
   return version;
 }
 
 /**
- * The global install command for this machine.
- *
- * Bun is preferred because that is how OmO installs itself here (its own
- * not-found message says `bun add -g omo-ai@beta`); npm is the fallback for a
- * machine without Bun.
+ * Delegate installation ownership, channel choice and checksum verification
+ * to the exact CLI the provider launches. Supports native and package installs.
  */
 export function installCommand(): { command: string; args: string[] } {
   requireUpdatesEnabled();
-  const bunHome = join(homedir(), ".bun", "bin", process.platform === "win32" ? "bun.exe" : "bun");
-  const bun = existsSync(bunHome) ? bunHome : fromPathNamed("bun");
-  if (bun) return { command: bun, args: ["add", "-g", `${OMO_PACKAGE}@${OMO_CHANNEL}`] };
-  const npm = fromPathNamed("npm");
-  if (npm) return { command: npm, args: ["install", "-g", `${OMO_PACKAGE}@${OMO_CHANNEL}`] };
-  throw new Error("No bun or npm on PATH to install OmO with");
+  const launch = resolveOmoLaunch();
+  return { command: launch.command, args: [...launch.base, "update"] };
+}
+
+/** Semver ordering, including stable promotion; never offer a downgrade. */
+export function isNewerVersion(available: string, installed: string): boolean {
+  const parse = (v: string) => /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(v);
+  const a = parse(available), b = parse(installed);
+  if (!a || !b) return false;
+  for (let i = 1; i <= 3; i++) if (Number(a[i]) !== Number(b[i])) return Number(a[i]) > Number(b[i]);
+  if (a[4] === undefined || b[4] === undefined) return a[4] === undefined && b[4] !== undefined;
+  const left = a[4].split("."), right = b[4].split(".");
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const x = left[i], y = right[i];
+    if (x === y) continue;
+    if (x === undefined || y === undefined) return x !== undefined;
+    const xn = /^\d+$/.test(x), yn = /^\d+$/.test(y);
+    if (xn && yn) return Number(x) > Number(y);
+    if (xn !== yn) return !xn;
+    return x > y;
+  }
+  return false;
 }
 
 export function installCommandLine(): string {
@@ -187,7 +211,7 @@ export async function omoUpdateStatus(
   let error: string | null = null;
   try {
     if (updatesDisabled()) error = PINNED_UPDATE_NOTICE;
-    else availableVersion = await availableOmoVersion();
+    else availableVersion = await availableOmoVersion(installedVersion);
   } catch (failure) {
     error = describe(failure);
   }
@@ -195,7 +219,7 @@ export async function omoUpdateStatus(
     installedVersion,
     availableVersion,
     updateAvailable:
-      installedVersion !== null && availableVersion !== null && installedVersion !== availableVersion,
+      installedVersion !== null && availableVersion !== null && isNewerVersion(availableVersion, installedVersion),
     liveSessions: registry.list().length,
     installCommand: installCommandLine(),
     error,

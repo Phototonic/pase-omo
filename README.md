@@ -126,6 +126,45 @@ graph, where there is room for it.
   install first (`~/.bun/install/global/node_modules/omo-ai/bin/omo.js`), then
   `omo` on `PATH`.
 
+## MCP servers and Paseo tools
+
+The provider forwards Paseo's per-session MCP servers to native OmO through
+`registerMcpServer`. This includes the authenticated `paseo` server injected by
+**Enable Paseo tools**, its browser tools when enabled, and additional servers
+supplied in the agent's MCP configuration.
+
+| Transport | Forwarded settings |
+| --- | --- |
+| stdio | Command, arguments, environment, and the agent's working directory |
+| Streamable HTTP | URL and headers |
+| Legacy HTTP/SSE | URL and headers through a private stdio transport relay; the POST endpoint must share the SSE endpoint's origin |
+
+Servers connect eagerly. `alwaysLoad: true` selects native direct exposure;
+otherwise OmO uses its normal adaptive exposure and tool search. This avoids
+forcing every large MCP catalogue into the model's prompt. Native trusted
+global/project MCP configuration takes precedence for an existing server name,
+including a disabled entry. Use distinct names to avoid accidental collisions.
+
+Declarations and transport credentials live in a private directory (0700), in
+files readable only by the daemon user (0600). Only file paths are passed in
+process arguments; global/project MCP configuration is not rewritten. Each
+native process gets a separate directory, cleaned up when it exits. Resume
+creates fresh declarations from the session configuration. Existing running
+sessions need to reopen their native process to receive this change.
+
+The relay forwards tools, resources, prompts, and other JSON-RPC messages; it
+does not implement a separate OAuth login flow. Header authentication and stdio
+environment credentials are covered by integration tests. Interactive OAuth
+flows and every third-party server have not been validated.
+
+Browser tools also require a connected Paseo browser automation host. Enabling
+the setting exposes the tools; a response of `browser_no_host` means the call
+reached Paseo but there is no connected browser host to execute it.
+For Paseo 0.11.4, connect the Paseo desktop app to the same daemon and keep it
+running while using browser tools. The web/mobile client alone does not host
+these browser tabs. A separate desktop profile keeps trial cookies and logins
+apart from an existing installation.
+
 ## Install
 
 On the machine that runs the Paseo daemon:

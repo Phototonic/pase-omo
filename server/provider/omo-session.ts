@@ -32,6 +32,7 @@ import {
   type WatchChildState,
 } from "./background-watch.js";
 import { visibleTimelineItems } from "./text-wrap.js";
+import { prepareMcpBridge } from "./mcp.js";
 
 type Json = Record<string, unknown>;
 
@@ -386,33 +387,40 @@ export class OmoSession {
    */
   private createProcess(sessionFile: string | undefined): OmoProcess {
     const { options } = this;
-    return new OmoProcess({
-      launch: options.launch,
-      args: this.spawnArgs(sessionFile),
-      cwd: options.config.cwd,
-      env: {
-        ...(process.env as Record<string, string>),
-        ...options.config.env,
-        NO_COLOR: "1",
-        [RPC_CLIENT_CAPABILITIES_ENV]: withExtensionEvents(
-          withQuestionCapability(
-            options.config.env?.[RPC_CLIENT_CAPABILITIES_ENV] ?? process.env[RPC_CLIENT_CAPABILITIES_ENV],
+    const bridge = prepareMcpBridge(options.config.mcpServers, options.config.cwd);
+    try {
+      return new OmoProcess({
+        launch: options.launch,
+        args: [...this.spawnArgs(sessionFile), ...bridge.args],
+        cwd: options.config.cwd,
+        env: {
+          ...(process.env as Record<string, string>),
+          ...options.config.env,
+          NO_COLOR: "1",
+          [RPC_CLIENT_CAPABILITIES_ENV]: withExtensionEvents(
+            withQuestionCapability(
+              options.config.env?.[RPC_CLIENT_CAPABILITIES_ENV] ?? process.env[RPC_CLIENT_CAPABILITIES_ENV],
+            ),
           ),
-        ),
-      },
-      onEvent: (event) => {
-        if (this.openingEvents) this.openingEvents.push(event);
-        else this.handleEvent(event);
-      },
-      onExit: ({ code, stderr }) => {
-        // A suspended session asked for this exit; reporting it would surface
-        // the pause as a crash and mark the agent failed in Paseo.
-        if (this.closed || this.suspended) return;
-        const detail = stderr.trim().split("\n").slice(-4).join("\n");
-        options.onRuntimeFailure(`OmO exited with code ${code ?? "null"}${detail ? `: ${detail}` : ""}`);
-      },
-      log: options.log,
-    });
+        },
+        onEvent: (event) => {
+          if (this.openingEvents) this.openingEvents.push(event);
+          else this.handleEvent(event);
+        },
+        onExit: ({ code, stderr }) => {
+          bridge.cleanup();
+          // A suspended session asked for this exit; reporting it would surface
+          // the pause as a crash and mark the agent failed in Paseo.
+          if (this.closed || this.suspended) return;
+          const detail = stderr.trim().split("\n").slice(-4).join("\n");
+          options.onRuntimeFailure(`OmO exited with code ${code ?? "null"}${detail ? `: ${detail}` : ""}`);
+        },
+        log: options.log,
+      });
+    } catch (error) {
+      bridge.cleanup();
+      throw error;
+    }
   }
 
   get sessionId(): string {

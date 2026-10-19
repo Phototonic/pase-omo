@@ -8,9 +8,55 @@ import {
   runOmoUpdateJob,
   installCommand,
   omoUpdateStatus,
+  availableOmoVersion,
+  isNewerVersion,
 } from "./update.js";
 import { OmoSessionRegistry, type LiveOmoSession } from "./session-registry.js";
 import type { OmoUpdateJob } from "../../shared/update.js";
+
+it.each([
+  ["5.1.35", "5.1.34", true],
+  ["5.1.0", "5.1.35", false],
+  ["5.1.35", "5.1.35", false],
+  ["5.2.0", "5.2.0-beta.3", true],
+  ["5.2.0-beta.3", "5.2.0", false],
+  ["5.2.0-beta.10", "5.2.0-beta.9", true],
+  ["5.2.0-beta.1", "5.2.0-beta", true],
+  ["5.2.0-2", "5.2.0-beta", false],
+])("orders available %s against installed %s without downgrading", (available, installed, expected) => {
+  expect(isNewerVersion(available, installed)).toBe(expected);
+});
+
+it("updates the exact CLI Paseo launches through its own update command", () => {
+  vi.stubEnv("PASEO_OMO_COMMAND", JSON.stringify(["/opt/native/omo"]));
+  expect(installCommand()).toEqual({ command: "/opt/native/omo", args: ["update"] });
+});
+
+it("preserves fixed runtime arguments when updating a script installation", () => {
+  vi.stubEnv("PASEO_OMO_COMMAND", JSON.stringify(["/usr/bin/node", "/opt/omo/bin/omo.js"]));
+  expect(installCommand()).toEqual({ command: "/usr/bin/node", args: ["/opt/omo/bin/omo.js", "update"] });
+});
+
+it("checks latest for stable OmO and beta for a prerelease", async () => {
+  const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ "dist-tags": { latest: "5.1.35", beta: "5.1.0" } })));
+  try {
+    expect(await availableOmoVersion("5.1.34")).toBe("5.1.35");
+    expect(await availableOmoVersion("5.1.0-beta.2")).toBe("5.1.0");
+  } finally { fetch.mockRestore(); }
+});
+
+it("reads a standalone binary version and never advertises an older registry version", async () => {
+  vi.stubEnv("PASEO_OMO_COMMAND", JSON.stringify([process.execPath, "-e", 'console.log("omo 5.1.35")', "--"]));
+  const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ "dist-tags": { latest: "5.1.34", beta: "5.1.0" } })));
+  try {
+    const status = await omoUpdateStatus({}, undefined, new OmoSessionRegistry());
+    expect(status.installedVersion).toBe("5.1.35");
+    expect(status.availableVersion).toBe("5.1.34");
+    expect(status.updateAvailable).toBe(false);
+    expect(status.installCommand).toContain("update");
+    expect(status.installCommand).not.toContain("@beta");
+  } finally { fetch.mockRestore(); }
+});
 
 /**
  * Two things decide whether an update is safe.
