@@ -43,3 +43,24 @@ test("an empty override is ignored rather than resolving to the process cwd", as
   const cwd = join(root, "project");
   expect(taskStateDir(cwd, { PASEO_OMO_TASK_STATE_DIR: "  " })).toBe(resolve(join(cwd, ".omo", "senpi-task")));
 });
+
+test("normal native config supplies the task store without a launcher override", async () => {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const root = await mkdtemp(join(tmpdir(), "omo-native-config-")); roots.push(root);
+  await mkdir(join(root, ".omo"), { recursive: true });
+  await writeFile(join(root, ".omo", "omo.jsonc"), JSON.stringify({ task: { state_dir: join(root, "tasks") } }));
+  const cwd = join(root, "project");
+  expect(taskStateDir(cwd, { HOME: root })).toBe(join(root, "tasks"));
+  expect(dagRunsDir(cwd, { HOME: root })).toBe(join(root, "tasks", "dag", "runs"));
+});
+
+test("project native JSONC overrides the global store and environment remains explicit", async () => {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const root = await mkdtemp(join(tmpdir(), "omo-native-config-")); roots.push(root);
+  const cwd = join(root, "project");
+  await mkdir(join(root, ".omo"), { recursive: true }); await mkdir(join(cwd, ".omo"), { recursive: true });
+  await writeFile(join(root, ".omo", "omo.jsonc"), JSON.stringify({ task: { state_dir: join(root, "global") } }));
+  await writeFile(join(cwd, ".omo", "omo.jsonc"), '{ // native overlay, including a trailing comma\n "task":{"state_dir":"unused"}, "[native]":{"task":{"state_dir":"./local-state",}},\n}');
+  expect(taskStateDir(cwd, { HOME: root })).toBe(join(cwd, "local-state"));
+  expect(taskStateDir(cwd, { HOME: root, PASEO_OMO_TASK_STATE_DIR: join(root, "explicit") })).toBe(join(root, "explicit"));
+});

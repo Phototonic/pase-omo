@@ -254,3 +254,5 @@ which is why OmO appears in the commit history as a co-author of its own plugin.
 ## License
 
 MIT
+
+For a regular installation, DAG/task readers resolve `task.state_dir` from OmO's global or project `omo.jsonc` / `omo.json`, including the `[native]` overlay. An explicit integration environment override still wins. A custom Paseo application launcher is not required.
