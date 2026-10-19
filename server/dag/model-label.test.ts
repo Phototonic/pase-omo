@@ -32,3 +32,15 @@ test("older records and unfamiliar provider names remain usable", () => {
   expect(task({ resolved_model: { display: "Claude Opus 5.5" } })).toMatchObject({ model: "Claude Opus 5.5" });
   expect(task({})?.model).toBeUndefined();
 });
+
+test("partial effective records never borrow a different model's identity", () => {
+  const base = { model: "zai/glm-5.3-flash", resolved_model: { provider: "zai", model_id: "glm-5.3-flash", display: "GLM-5.3-Flash" } };
+  const displayOnly = task({ ...base, effective_model: { display: "GPT-6 Luna" } });
+  expect(displayOnly?.model).toBe("GPT-6 Luna");
+  expect(displayOnly?.modelRef).toBeUndefined();
+  expect(task({ ...base, effective_model: { display: "chatgpt-subscription/gpt-6-luna" } }))
+    .toMatchObject({ model: "GPT-6 Luna", modelRef: "chatgpt-subscription/gpt-6-luna" });
+  const idOnly = task({ ...base, effective_model: { model_id: "gpt-6-luna" } });
+  expect(idOnly?.model).toBe("GPT-6 Luna");
+  expect(idOnly?.modelRef).toBeUndefined();
+});
