@@ -120,7 +120,9 @@ graph, where there is room for it.
 
 Worker conversations follow complete messages persisted by OmO, rather than
 token-by-token deltas. Reopening the parent restores the same saved worker
-history without starting another task.
+history without starting another task. DAG cards use short model names; node
+details retain the effective provider/model ID and, when different, the original
+request and initial route. A route change alone does not identify its cause.
 
 ---
 
