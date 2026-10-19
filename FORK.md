@@ -36,8 +36,10 @@ integration choices, not requirements imposed on the small upstream UI PRs.
 
 ## Validation
 
-On 2026-10-19, the combined pending feature branch passed 508 tests in 69 files,
+On 2026-10-19, the combined pending feature branch passed 509 tests in 69 files,
 TypeScript checks, and Paseo production bundle compilation/evaluation.
+Independent review approved the three small upstream contribution diffs; its
+two model-display findings were corrected and regression-tested.
 Deterministic fixture tests against an isolated Paseo 0.11.4 daemon covered
 worker text/tool output, WebSocket reconnects, output after reconnect, and
 history rebuilding after plugin reload without duplicate final messages.
