@@ -8,6 +8,7 @@ import {
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TaskDiagnostics } from "./task-diagnostics";
 import {
   ActivityIndicator,
   Pressable,
@@ -1886,6 +1887,7 @@ export function DagRunCard({
                 </View>
               ) : null}
 
+              <TaskDiagnostics task={selectedTask} theme={theme} />
               {selectedNode.taskId ? (
                 <Text style={[styles.taskIdFooter, { color: theme.colors.foregroundMuted }]}>
                   Linked task ID: {selectedNode.taskId}

@@ -7,6 +7,7 @@ import { agentDagSnapshotRpc, type DagRow } from "../shared/row";
 import { formatDuration, formatKoreanDateTime } from "./dag";
 import { COMPACT_GRAPH_METRICS, DEFAULT_GRAPH_METRICS, layoutGraph, type GraphNode } from "./graph-layout";
 import { OpenInDagButton } from "./open-in-dag";
+import { TaskDiagnostics } from "./task-diagnostics";
 import {
   edgeVisual,
   fitsStateLine,
@@ -414,6 +415,7 @@ function NodeInspector({
         </View>
       ) : null}
 
+      <TaskDiagnostics task={task} theme={theme} />
       {detail?.node.taskId ? (
         <Text style={styles.taskIdFooter}>Linked task ID: {detail.node.taskId}</Text>
       ) : null}
