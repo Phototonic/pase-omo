@@ -1,6 +1,9 @@
 # Isolated Paseo 0.11.4 trial fork
 
-Local compatibility fork of Hakubisual/pase-omo, retaining the MIT license and upstream history. Not published to GitHub.
+Historical notes from the initial isolated trial. The integration is now published at
+https://github.com/Phototonic/pase-omo, retaining the MIT license and upstream history.
+The observations below describe that initial validation stage, not the current
+provider authentication, deployment or acceptance state. See FORK.md.
 
 - Base: `7eedceb5cbc4ae636e0638d0ee31a78129698e92`.
 - Background-work PR #28: `15c41da5642b0ecc9de291cdadf57eba57a991c6`, incorporated with its original history. Skipped-DAG and session-environment review fixes are already included.
