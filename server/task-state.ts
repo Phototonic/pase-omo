@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { parse, type ParseError } from "jsonc-parser";
+// The host evaluator cannot resolve the UMD entry's relative require calls.
+import { parse, type ParseError } from "jsonc-parser/lib/esm/main.js";
 
 /**
  * The OmO task-state tree has two readers inside this plugin: the snapshot RPCs
