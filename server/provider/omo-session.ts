@@ -7,6 +7,7 @@ import type {
   ProviderSetting,
   ProviderThinkingOption,
   ProviderTimelineItem,
+  ProviderUsage,
 } from "@getpaseo/plugin/server/provider";
 import type { ApprovalResponse, PendingApprovalRequest } from "../../shared/approval.js";
 import { omoSessionRegistry } from "./session-registry.js";
@@ -94,6 +95,7 @@ export interface OmoStateRecord {
   sessionId?: string;
   sessionName?: string;
   cwd?: string;
+  contextUsage?: { tokens: number | null; contextWindow: number; percent?: number | null };
 }
 
 export interface OmoCommandRecord {
@@ -351,6 +353,12 @@ export class OmoSession {
   private openingEvents: OmoEvent[] | undefined;
   /** True between `suspend()` and `resume()`, when no child process exists. */
   private suspended = false;
+  private usage: ProviderUsage = {};
+  private usageSignature: string | undefined;
+  private contextRefresh: Promise<void> | undefined;
+  private contextRefreshQueued = false;
+  private contextVersion = 0;
+  private openingUsagePending = true;
   /** What has already been published for each `task()` run, keyed by task id. */
   private readonly taskStates = new Map<string, TaskState>();
   private readonly taskTranscripts = new TaskTranscriptReader();
@@ -550,6 +558,7 @@ export class OmoSession {
     for (const event of openingEvents) this.handleEvent(event);
     this.emit({ type: "session.config", sessionId: this.sessionId, config: this.configState() });
     this.publishCommands();
+    this.publishContextUsage(this.state);
     if (history === "replay") await this.replay();
     this.emit({ type: "session.ready", requestId, sessionId: this.sessionId });
     this.scheduleTaskScan(TASK_POLL_ACTIVE_MS);
@@ -694,11 +703,13 @@ export class OmoSession {
     try {
       const cwd = this.state.cwd ?? this.config.cwd;
       const omoSessionId = this.state.sessionId;
+      const contextVersion = this.contextVersion;
       const [raw, records, openWork] = await Promise.all([
         this.proc.call<unknown>("get_state", {}, SETTLE_PROBE_TIMEOUT_MS),
         omoSessionId ? readTaskRecords(cwd, omoSessionId, this.sessionEnv()) : [],
         omoSessionId ? readOpenWork(cwd, omoSessionId, this.sessionEnv()) : [],
       ]);
+      if (contextVersion === this.contextVersion) this.publishContextUsage(raw);
       if (openWork === "unreadable") return { occupied: true, problem: "workpool or workflow state is unreadable" };
       const bash = await readBash(raw, omoSessionId);
       if (bash === "unreadable") return { occupied: true, problem: "background shell state is unreadable" };
@@ -745,6 +756,13 @@ export class OmoSession {
     if (this.closed || this.taskTimer !== null) return;
     this.taskTimer = setTimeout(() => {
       this.taskTimer = null;
+      // Paseo 0.11 subscribes after opening, and does not hydrate usage from
+      // opening history. Replay the current snapshot on the first normal poll.
+      if (!this.suspended && this.openingUsagePending) {
+        this.openingUsagePending = false;
+        this.usageSignature = undefined;
+        this.publishUsage();
+      }
       void this.scanTasks().finally(() => {
         this.scheduleTaskScan(this.activeTurnId === null || this.probeFailures >= 3 ? TASK_POLL_IDLE_MS : TASK_POLL_ACTIVE_MS);
       });
@@ -769,7 +787,7 @@ export class OmoSession {
     }
     try {
       const commands = await this.proc.call<{ commands: OmoCommandRecord[] }>("get_commands", {}, 60_000);
-      this.commands = (commands.commands ?? []).filter((command) => command.syntax !== "dollar");
+      this.commands = commands.commands ?? [];
     } catch (error) {
       this.options.log(`get_commands failed: ${describe(error)}`);
     }
@@ -779,11 +797,44 @@ export class OmoSession {
     this.emit({
       type: "session.commands",
       sessionId: this.sessionId,
-      commands: this.commands.map((command) => ({
+      // Senpi labels skills as dollar commands but still accepts /skill:name.
+      // Paseo's slash menu can expose that supported legacy invocation.
+      commands: this.commands.filter(command => command.syntax !== "dollar" || command.name.startsWith("skill:")).map((command) => ({
         name: command.name,
         description: command.description ?? `OmO ${command.name}`,
       })),
     });
+  }
+
+  private publishUsage(turnId: string | null = this.activeTurnId): void {
+    if (this.usageSignature === undefined && Object.keys(this.usage).length === 0) return;
+    const signature = JSON.stringify(this.usage);
+    if (signature === this.usageSignature) return;
+    this.usageSignature = signature;
+    this.emit({ type: "session.usage", sessionId: this.sessionId, ...(turnId ? { turnId } : {}), usage: { ...this.usage } });
+  }
+
+  private publishContextUsage(raw: unknown): void {
+    if (this.closed || this.suspended) return;
+    const { contextWindowMaxTokens: _max, contextWindowUsedTokens: _used, ...tokens } = this.usage;
+    // Paseo replaces the usage snapshot, so omitted unknown counts clear stale
+    // pre-compaction values instead of pretending an unknown estimate is zero.
+    this.usage = { ...tokens, ...contextUsageOf(raw) };
+    this.publishUsage();
+  }
+
+  private refreshContextUsage(): void {
+    if (this.closed || this.suspended) return;
+    if (this.contextRefresh) { this.contextRefreshQueued = true; return; }
+    const process = this.proc;
+    const version = this.contextVersion;
+    this.contextRefresh = process.call<OmoStateRecord>("get_state", {}, 10_000)
+      .then(state => { if (!this.closed && !this.suspended && process === this.proc && version === this.contextVersion) this.publishContextUsage(state); })
+      .catch(error => this.options.log(`context usage refresh failed: ${describe(error)}`))
+      .finally(() => {
+        this.contextRefresh = undefined;
+        if (this.contextRefreshQueued) { this.contextRefreshQueued = false; this.refreshContextUsage(); }
+      });
   }
 
   configState(): ProviderConfigState {
@@ -962,6 +1013,7 @@ export class OmoSession {
     await this.refreshCatalog();
     this.emit({ type: "session.config", sessionId: this.sessionId, config: this.configState() });
     this.publishCommands();
+    this.publishContextUsage(this.state);
     const persistence = this.persistence();
     if (persistence) this.emit({ type: "session.persistence", sessionId: this.sessionId, persistence });
   }
@@ -982,6 +1034,7 @@ export class OmoSession {
     if (typeof fast === "boolean") await this.proc.call("set_fast_mode", { enabled: fast }, 60_000);
     try {
       this.state = await this.proc.call<OmoStateRecord>("get_state", {}, 60_000);
+      this.publishContextUsage(this.state);
     } catch (error) {
       this.options.log(`get_state after configure failed: ${describe(error)}`);
     }
@@ -1152,6 +1205,25 @@ export class OmoSession {
         return;
       case "message_end":
         this.handleMessageEnd(event.message);
+        this.usage = { ...this.usage, ...usageOf({ type: "message_end", messages: [event.message] }) };
+        this.refreshContextUsage();
+        return;
+      case "commands_changed":
+        if (Array.isArray(event.commands)) {
+          this.commands = event.commands.filter((command): command is OmoCommandRecord =>
+            typeof command === "object" && command !== null && typeof command.name === "string");
+          this.publishCommands();
+        }
+        return;
+      case "auto_compaction_end":
+        this.contextVersion += 1;
+        this.publishContextUsage({ model: { contextWindow: this.usage.contextWindowMaxTokens } });
+        this.refreshContextUsage();
+        return;
+      case "session_replaced":
+        this.contextVersion += 1;
+        this.publishContextUsage({});
+        this.refreshContextUsage();
         return;
       case "tool_execution_start":
       case "tool_execution_update":
@@ -1196,7 +1268,8 @@ export class OmoSession {
     }
     this.emit({ type: "session.turn", sessionId: this.sessionId, turnId, state: "completed" });
     const usage = usageOf(event);
-    if (usage) this.emit({ type: "session.usage", sessionId: this.sessionId, turnId, usage });
+    if (usage) this.usage = { ...this.usage, ...usage };
+    this.publishUsage(turnId);
     const persistence = this.persistence();
     if (persistence) this.emit({ type: "session.persistence", sessionId: this.sessionId, persistence });
   }
@@ -1211,13 +1284,17 @@ export class OmoSession {
             id: model.id,
             provider: model.provider,
             ...(typeof model.name === "string" ? { name: model.name } : {}),
+            ...(typeof model.contextWindow === "number" ? { contextWindow: model.contextWindow } : {}),
           },
         };
+        this.contextVersion += 1;
+        this.publishContextUsage({ model: this.state.model });
       }
     }
     if (typeof event.level === "string") this.state = { ...this.state, thinkingLevel: event.level };
     if (typeof event.thinkingLevel === "string") this.state = { ...this.state, thinkingLevel: event.thinkingLevel };
     this.emit({ type: "session.config", sessionId: this.sessionId, config: this.configState() });
+    this.refreshContextUsage();
   }
 
   private streamItemId(kind: "assistant" | "reasoning", contentIndex: number): string {
@@ -1619,6 +1696,19 @@ function usageOf(event: OmoEvent | undefined): { inputTokens?: number; outputTok
     };
   }
   return undefined;
+}
+
+/** Native context estimates are independent of per-request/billing token totals. */
+export function contextUsageOf(raw: unknown): ProviderUsage {
+  const object = (value: unknown): Json => typeof value === "object" && value !== null && !Array.isArray(value) ? value as Json : {};
+  const count = (value: unknown): number | undefined => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+  const state = object(raw), context = object(state.contextUsage);
+  const capacity = count(context.contextWindow) || count(object(state.model).contextWindow);
+  const used = count(context.tokens);
+  return {
+    ...(capacity ? { contextWindowMaxTokens: capacity } : {}),
+    ...(used !== undefined ? { contextWindowUsedTokens: used } : {}),
+  };
 }
 
 export function describe(error: unknown): string {
