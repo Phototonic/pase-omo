@@ -53,9 +53,24 @@ OmO version. PR-specific validation and independent review belong in each PR.
 
 ## Upstream contribution plan
 
-Submit the small attempt-number, mobile popover and model display fixes as
-independent PRs. MCP forwarding, usage integration and native state discovery
-need separately scoped comparisons and review before upstream submission.
+Opened as independent contributions, without merging or enabling auto-merge:
+
+- [#30 — native DAG attempt numbers](https://github.com/Hakubisual/pase-omo/pull/30):
+  405 tests and TypeScript passed with upstream dependencies.
+- [#31 — mobile DAG popover scrolling](https://github.com/Hakubisual/pase-omo/pull/31):
+  405 tests and TypeScript passed on the isolated rerun; physical Android
+  acceptance passed on Paseo 0.11.4. The initial parallel run's unrelated
+  catalog-cache failure is disclosed in the PR.
+- [#32 — effective model labels and routing detail](https://github.com/Hakubisual/pase-omo/pull/32):
+  410 tests and TypeScript passed with upstream dependencies.
+
+All three received an independent agent source review before submission.
+Upstream-dependency validation used Paseo 0.8.0 / Senpi 2026.9.26. The newer
+integration was validated separately; no SDK version bump is included in these
+contributions.
+
+MCP forwarding, usage integration and native state discovery need separately
+scoped comparisons and review before upstream submission.
 Worker transcript integration currently builds on PR #28 and the native task
 store changes; preserve its branch rather than submitting the entire integration
 as one overlapping PR.
