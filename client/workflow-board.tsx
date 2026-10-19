@@ -2,6 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Platform, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import type { DagRun, DagTask } from "../shared/dag.js";
+import { TaskDiagnostics } from "./task-diagnostics";
 import { stateColor, statusLabel } from "./graph-visual.js";
 import {
   COMPACT_WORKFLOW_METRICS,
@@ -347,6 +348,7 @@ export function WorkflowBoard({
           {selectedTask?.progress && selectedTask.progress !== selectedTask.description ? (
             <Text style={[styles.inspectorLine, { color: theme.colors.accent }]}>{selectedTask.progress}</Text>
           ) : null}
+          <TaskDiagnostics task={selectedTask} theme={theme} />
           {selected.error ? (
             <Text style={[styles.inspectorLine, { color: theme.colors.statusDanger }]}>{selected.error}</Text>
           ) : null}

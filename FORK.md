@@ -12,6 +12,9 @@ Upstream: https://github.com/Hakubisual/pase-omo. MIT license retained.
   been reloaded with those changes.
 - `fix/skills-and-context` builds on that branch with native skill commands and
   context-window reporting. It also remains pending while live work is active.
+- `fix/dag-observability` adds terminal reasons and incremental worker activity
+  to the combined pending integration, with private compatibility checks against
+  Paseo 0.11.4 and 0.12.0. It does not upgrade the live application.
 - `fix/dag-attempt-display`, `fix/mobile-dag-scrolling` and
   `fix/dag-model-labels` are independent contributions based on upstream `main`.
 
@@ -35,6 +38,9 @@ Phototonic contributions and must not be submitted as a duplicate PR.
   reloads; `/skill:name` invokes Senpi's supported skill parser.
 - Native context-used and capacity estimates, refreshed during work, compaction
   and model changes. Unknown estimates remain unknown instead of becoming zero.
+- Native terminal reasons and a bounded, incremental activity reader for running
+  DAG workers. Observed tool counts and last recorded activity are presented
+  separately from native totals; unreadable or partial logs remain visible.
 
 The integration pins Paseo development packages to 0.11.4 and Senpi to
 2026.10.16; it was exercised with OmO 5.1.35. These pins and the npm lockfile are
@@ -42,7 +48,7 @@ integration choices, not requirements imposed on the small upstream UI PRs.
 
 ## Validation
 
-On 2026-10-19, the combined pending feature branch passed 518 tests in 70 files,
+On 2026-10-19, the combined pending feature branch passed 528 tests in 72 files,
 TypeScript checks, and Paseo production bundle compilation/evaluation.
 Independent review approved the three small upstream contribution diffs; its
 two model-display findings were corrected and regression-tested.
@@ -57,6 +63,21 @@ proves routing and presentation data, not model compliance with skill bodies.
 Read-only replay also recovered worker transcripts from all three providers.
 These checks did not request paid model generations and did not modify or reload
 the active installation.
+
+The updated deterministic harness passed all 16 checks against private 0.11.4
+and 0.12.0 daemons, including DAG activity and cancellation reasons. The runtime
+manifest admits both minor releases; development dependencies remain pinned.
+This is fixture-level compatibility evidence, not a live 0.12.0 desktop test.
+The full integration suite uses a private home: running tests against the real
+home allowed native task-store configuration to override legacy test fixtures,
+causing 13 failures in unrelated fixture readers. That diagnostic run is retained;
+the private-home suite and the upstream-dependency suite passed.
+
+Independent review of the focused activity/reason contribution found no blockers.
+Its two minor suggestions (read-budget catch-up coverage and precise buffer
+privacy documentation) were implemented before submission. The separate host
+status-overwrite regression remains reproducible in published Paseo 0.12.0 and
+is tracked at https://github.com/getpaseo/paseo/issues/7390.
 
 The Android DAG popover scrolling correction was confirmed on a physical device.
 A passing test suite does not assert that every feature works on every Paseo or

@@ -5,6 +5,9 @@ import type { DagRun, DagSession, DagStatus, DagTask } from "../../shared/dag.js
 import type { LocateDagPayload } from "../../shared/navigate.js";
 import { readSessionHeaders, sameCwd, type SessionHeader, sessionsDir } from "../provider/omo-store.js";
 import { taskStateDir as resolveTaskStateDir } from "../task-state.js";
+import { TaskActivityReader } from "./task-activity.js";
+
+const taskActivity = new TaskActivityReader();
 
 /**
  * Error codes the DAG RPCs expose. Corrupt source data must surface as a
@@ -129,12 +132,13 @@ export function normalizeTask(raw: unknown): DagTask | undefined {
     ...pick("agent", text(record.agent_type, 128) ?? text(record.category, 128)),
     ...modelFields(record),
     ...pick("status", status),
-    ...pick("startedAt", iso(live?.started_at) ?? iso(record.created_at)),
+    ...pick("startedAt", iso(live?.started_at) ?? iso(record.started_at) ?? iso(record.created_at)),
     ...pick("completedAt", iso(record.terminal_at) ?? (terminal ? iso(record.updated_at) : undefined)),
     ...pick("progress", terminal ? undefined : (text(progress, 512) ?? text(live?.activity, 512))),
     ...pick("turns", count(live?.turns) ?? count(stats?.turns)),
     ...pick("toolCalls", count(live?.tool_calls) ?? count(stats?.tool_calls)),
     ...pick("tokensPerSecond", rate(stats?.tokens_per_second)),
+    ...pick("terminalReason", terminal ? text(record.error_message, 2000) : undefined),
   };
   return task;
 }
@@ -464,7 +468,15 @@ export async function getDagSnapshot(
   if (!selected || !sameCwd(selected.cwd, resolved.cwd)) {
     throw sessionNotFound();
   }
-  return { sessionId: selected.id, ...project(catalog, selected.id) };
+  const snapshot = project(catalog, selected.id);
+  for (const task of snapshot.tasks) {
+    if (task.status !== "running") continue;
+    const activity = await taskActivity.read(resolved.taskStateDir, task.id);
+    if (!activity) continue;
+    Object.assign(task, activity);
+    if (!task.progress && activity.lastTool) task.progress = `Last tool: ${activity.lastTool}`;
+  }
+  return { sessionId: selected.id, ...snapshot };
 }
 
 /**
