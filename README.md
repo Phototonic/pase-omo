@@ -1,3 +1,8 @@
+> **Phototonic integration fork:** this repository preserves our native OmO + Paseo fixes.
+> The `live/native-install` branch contains the installed integration;
+> `fix/worker-transcripts` contains the separately tested, pending worker-output and model-label fixes.
+> See [FORK.md](FORK.md) for provenance, validation and upstream contribution status.
+
 <div align="center">
 
 # pase-omo
