@@ -87,3 +87,10 @@ test("large valid logs catch up across read budgets without duplicate counts", a
   expect(complete.activityError).toBeUndefined();
   expect((await f.snapshot()).observedToolCalls).toBe(9001);
 });
+
+test("progress timestamps come only from their native progress record, never task status writes", () => {
+  const base = { task_id: "st_time", status: "running", updated_at: "2026-10-20T12:00:00Z", live_progress: { activity: "Still waiting" } };
+  expect(normalizeTask(base)?.progressAt).toBeUndefined();
+  expect(normalizeTask({ ...base, live_progress: { ...base.live_progress, updated_at: "2026-10-20T11:00:00Z" } })?.progressAt).toBe("2026-10-20T11:00:00.000Z");
+  expect(normalizeTask({ ...base, status: "completed" })?.progressAt).toBeUndefined();
+});

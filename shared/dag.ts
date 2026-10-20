@@ -10,6 +10,7 @@ export const DagTaskSchema = z.object({
   startedAt: z.string().optional(),
   completedAt: z.string().optional(),
   progress: z.string().optional(),
+  progressAt: z.string().optional(),
   terminalReason: z.string().optional(),
   lastActivityAt: z.string().optional(),
   lastTool: z.string().optional(),
@@ -49,6 +50,7 @@ export const DagRunSchema = z.object({
       attempt: z.number().int().nonnegative(),
       taskId: z.string().optional(),
       error: z.string(),
+      route: z.string().optional(),
     }),
   ),
   edges: z.array(z.object({ from: z.string(), to: z.string() })),
@@ -108,3 +110,22 @@ export type DagSessionsInput = z.infer<typeof listSessionsRpc.input>;
 export type DagSessionsPayload = z.infer<typeof listSessionsRpc.output>;
 export type DagSnapshotInput = z.infer<typeof getSnapshotRpc.input>;
 export type DagSnapshotPayload = z.infer<typeof getSnapshotRpc.output>;
+
+/** Read-only output for a worker verified to belong to this session. */
+export const workerOutputRpc = defineRpc({
+  name: "dag.worker-output",
+  input: z.object({
+    agentId: z.string().min(1).optional(),
+    cwd: z.string().min(1).optional(),
+    sessionId: z.string().min(1).optional(),
+    taskId: z.string().regex(/^st_[A-Za-z0-9_-]{1,253}$/),
+  }).refine(input => Boolean(input.agentId || (input.cwd && input.sessionId)), "A session scope is required"),
+  output: z.object({
+    taskId: z.string(),
+    text: z.string(),
+    truncated: z.boolean(),
+    warning: z.string().optional(),
+  }),
+});
+export type WorkerOutput = z.infer<typeof workerOutputRpc.output>;
+export type WorkerScope = { agentId: string } | { cwd: string; sessionId: string };

@@ -97,6 +97,7 @@ export function normalizeTask(raw: unknown): DagTask | undefined {
     ...pick("startedAt", iso(live?.started_at) ?? iso(record.started_at) ?? iso(record.created_at)),
     ...pick("completedAt", iso(record.terminal_at) ?? (terminal ? iso(record.updated_at) : undefined)),
     ...pick("progress", terminal ? undefined : (text(progress, 512) ?? text(live?.activity, 512))),
+    ...pick("progressAt", terminal ? undefined : iso(live?.updated_at ?? live?.last_activity_at)),
     ...pick("turns", count(live?.turns) ?? count(stats?.turns)),
     ...pick("toolCalls", count(live?.tool_calls) ?? count(stats?.tool_calls)),
     ...pick("tokensPerSecond", rate(stats?.tokens_per_second)),
@@ -137,6 +138,7 @@ export function normalizeRun(raw: unknown): DagRun | undefined {
       attempt: count(node.attempt) ?? 0,
       ...(typeof taskId === "string" ? { taskId } : {}),
       error: clean(object(node.last_error)?.message ?? object(node.error)?.message ?? ""),
+      ...pick("route", text(object(node.route)?.category ?? object(node.route)?.agent, 128)),
     });
   }
 

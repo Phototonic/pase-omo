@@ -1,3 +1,6 @@
+import { NodeDependencies } from "./node-dependencies.js";
+import { WorkerInspector } from "./worker-inspector.js";
+import type { WorkerScope } from "../shared/dag.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
@@ -1372,6 +1375,7 @@ export function SessionStatsBar({
 // ============================================================================
 
 export interface DagRunCardProps {
+  workerScope?: WorkerScope | undefined;
   run: DagRun;
   tasksMap: Map<string, DagTask>;
   childTasksMap: Map<string, DagTask[]>;
@@ -1397,6 +1401,7 @@ export function DagRunCard({
   onToggleTaskFold,
   theme,
   compact,
+  workerScope,
 }: DagRunCardProps): React.JSX.Element {
   const isFolded = !isRunExpanded(run.id, foldedRuns);
   const statusColor = getStatusColor(run.status, theme);
@@ -1888,6 +1893,8 @@ export function DagRunCard({
               ) : null}
 
               <TaskDiagnostics task={selectedTask} theme={theme} />
+              <NodeDependencies run={run} node={selectedNode} theme={theme} onSelectNode={onSelectNode} />
+              {selectedTask ? <WorkerInspector key={selectedTask.id} task={selectedTask} tasks={[...tasksMap.values()]} scope={workerScope} theme={theme} /> : null}
               {selectedNode.taskId ? (
                 <Text style={[styles.taskIdFooter, { color: theme.colors.foregroundMuted }]}>
                   Linked task ID: {selectedNode.taskId}
@@ -2235,6 +2242,7 @@ export function DagMainView({ cwd, theme, compact, agentId }: DagMainViewProps):
           }
         : agentSnapshotQuery.data
       : snapshotQuery.data;
+  const workerScope: WorkerScope | undefined = agentId ? { agentId } : cwd && activeSessionId ? { cwd, sessionId: activeSessionId } : undefined;
   const stats = useMemo(() => calculateSessionStats(snapshot), [snapshot]);
   const workspaceStats = useMemo(() => calculateWorkspaceStats(sessions), [sessions]);
 
@@ -2619,6 +2627,7 @@ export function DagMainView({ cwd, theme, compact, agentId }: DagMainViewProps):
                       key={run.id}
                       run={run}
                       tasksMap={allTasksMap}
+                      workerScope={workerScope}
                       selectedNodeId={selectedNodeByRun[run.id] ?? null}
                       onSelectNode={(nodeId) => handleSelectNode(run.id, nodeId)}
                       subtasks={runSubtasks(run, childTasksMap, standaloneRootTasks)}
@@ -2632,6 +2641,7 @@ export function DagMainView({ cwd, theme, compact, agentId }: DagMainViewProps):
                   key={run.id}
                   run={run}
                   tasksMap={allTasksMap}
+                  workerScope={workerScope}
                   childTasksMap={childTasksMap}
                   foldedRuns={foldedRuns}
                   onToggleRunFold={handleToggleRunFold}
