@@ -6,15 +6,14 @@ Upstream: https://github.com/Hakubisual/pase-omo. MIT license retained.
 
 - `main` follows the upstream default branch.
 - `live/native-install` contains the integration used by the installed plugin,
-  plus this fork documentation. Runtime baseline: `dffd5fb`.
-- `fix/worker-transcripts` preserves the tested worker transcript and model-label
-  changes pending safe deployment. It is not evidence that live sessions have
-  been reloaded with those changes.
-- `fix/skills-and-context` builds on that branch with native skill commands and
-  context-window reporting. It also remains pending while live work is active.
-- `fix/dag-observability` adds terminal reasons and incremental worker activity
-  to the combined pending integration, with private compatibility checks against
-  Paseo 0.11.4 and 0.12.0. It does not upgrade the live application.
+  plus this fork documentation. The baseline before manual compaction is
+  `0a19e45`; native worker output, skills/context and DAG observability are
+  already deployed there.
+- `fix/worker-transcripts`, `fix/skills-and-context` and `fix/dag-observability`
+  preserve the development history of those integrated fixes.
+- `fix/manual-compaction` adds an explicit native compaction command with an
+  idle guard, cancellation and context refresh. Deploy only during an all-idle
+  window; it does not update the engine or desktop application.
 - `fix/dag-attempt-display`, `fix/mobile-dag-scrolling` and
   `fix/dag-model-labels` are independent contributions based on upstream `main`.
 
@@ -33,7 +32,7 @@ Phototonic contributions and must not be submitted as a duplicate PR.
   worker readers; ESM JSONC import compatible with Paseo's production evaluator.
 - Codex and Z.ai subscription usage reporting through the host usage panel.
 - Correct DAG attempt numbering and mobile popover scrolling.
-- Separate pending worker-output/history and effective-model display changes.
+- Worker-output/history and effective-model display changes.
 - Native global/project skill entries in Paseo's slash menu, including resource
   reloads; `/skill:name` invokes Senpi's supported skill parser.
 - Native context-used and capacity estimates, refreshed during work, compaction
@@ -41,12 +40,32 @@ Phototonic contributions and must not be submitted as a duplicate PR.
 - Native terminal reasons and a bounded, incremental activity reader for running
   DAG workers. Observed tool counts and last recorded activity are presented
   separately from native totals; unreadable or partial logs remain visible.
+- `/compact [instructions]` delegates to native compaction only after the
+  session's occupancy is readable and idle; it supports cancellation and the
+  current `compaction_end` event as well as the legacy event spelling.
 
 The integration pins Paseo development packages to 0.11.4 and Senpi to
-2026.10.16; it was exercised with OmO 5.1.35. These pins and the npm lockfile are
+2026.10.16; the integration was exercised with OmO 5.1.35 and read-only live
+acceptance repeated after the normal update to OmO 5.1.38 / Senpi 2026.10.19.
+These pins and the npm lockfile are
 integration choices, not requirements imposed on the small upstream UI PRs.
 
 ## Validation
+
+On 2026-10-20, the compaction integration passed 542 tests across 73 files,
+TypeScript and Paseo 0.12.0 production compilation. The private 19-check
+acceptance covers native compaction RPC routing, command/context restoration,
+worker output, DAG metadata, plugin reload and reconnects using a fake OmO
+process; it does not claim a real long session was summarized. Read-only live
+acceptance after the native 5.1.38 update verified three saved parents, global
+and project skills, context, three-provider worker history, DAGs, model and
+usage catalogues, reconnect stability and seven MCPs, including a browser
+read call. No paid generation was requested.
+
+Known upstream limits remain: Paseo's provider adapter classifies plugin skills
+as ordinary commands, hiding them from inline completion (#7443), and native
+5.1.38 predates the plan-gate reload handoff fix (OmO #9849 / #10143). Neither
+issue is repaired by changing model routes or restarting a working session.
 
 On 2026-10-19, the combined pending feature branch passed 528 tests in 72 files,
 TypeScript checks, and Paseo production bundle compilation/evaluation.
@@ -95,6 +114,8 @@ Opened as independent contributions, without merging or enabling auto-merge:
   catalog-cache failure is disclosed in the PR.
 - [#32 — effective model labels and routing detail](https://github.com/Hakubisual/pase-omo/pull/32):
   410 tests and TypeScript passed with upstream dependencies.
+- [#33 — native terminal reasons and recorded worker activity](https://github.com/Hakubisual/pase-omo/pull/33):
+  focused contribution from the independently validated integration.
 
 All three received an independent agent source review before submission.
 Upstream-dependency validation used Paseo 0.8.0 / Senpi 2026.9.26. The newer
