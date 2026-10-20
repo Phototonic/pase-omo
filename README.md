@@ -71,6 +71,25 @@ progress line, newest first. Tap a line to jump to its node.
 
 The previous card view is still one click away under **Cards**.
 
+### Inspecting workers and waits
+
+Select a node to see its owning worker and explicit nested workers, with **Open
+worker output** for a read-only excerpt of recorded assistant text and tool
+results. The viewer stays inside the DAG; it does not start, attach to or prompt
+a worker. Large transcripts are bounded and labelled as excerpts. Missing and
+partial output are shown explicitly. Standalone session work is labelled
+separately from work belonging to a DAG node.
+
+Waiting nodes name their unfinished dependencies; tap a dependency to inspect
+it. A scheduled node without a recorded queue reason says so, rather than
+inventing a capacity limit. Waves are dependency groupings, not execution
+barriers: a ready node can start while an unrelated sibling is still running.
+
+Activity age uses recorded log activity, and a progress line uses only its own
+recorded timestamp. Undated progress says **Time not recorded**. Quiet workers
+are labelled by their silence, never automatically declared stalled or failed.
+The output view makes one final read on completion, then stops polling.
+
 ## In the chat
 
 OmO's questions arrive as Paseo's native question card:

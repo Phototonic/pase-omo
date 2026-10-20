@@ -1,3 +1,6 @@
+import { NodeDependencies } from "./node-dependencies.js";
+import { WorkerInspector } from "./worker-inspector.js";
+import type { DagRun } from "../shared/dag.js";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -228,7 +231,12 @@ function GraphNodeCard({
 }
 
 /** What the inspector knows about the selected node beyond the row itself. */
-type NodeDetail = { node: DagRunNode; task: DagTask | undefined };
+type NodeDetail = {
+  run: DagRun;
+  tasks: DagTask[];
+  node: DagRunNode;
+  task: DagTask | undefined;
+};
 
 /**
  * Pulls the run record behind the selected node.
@@ -269,7 +277,7 @@ function useNodeDetail(input: {
         setDetail(
           node === undefined
             ? null
-            : { node, task: payload.tasks.find((candidate) => candidate.id === node.taskId) },
+            : { run: run!, tasks: payload.tasks, node, task: payload.tasks.find((candidate) => candidate.id === node.taskId) },
         );
       } catch {
         // A host without the RPC bound still gets the inspector; it just shows
@@ -321,7 +329,11 @@ function NodeInspector({
   theme,
   styles,
   onClose,
+  onSelectNode,
+  agentId,
 }: {
+  onSelectNode: (id: string | null) => void;
+  agentId: string | undefined;
   row: DagRow;
   nodeId: string;
   detail: NodeDetail | null;
@@ -419,6 +431,8 @@ function NodeInspector({
       ) : null}
 
       <TaskDiagnostics task={task} theme={theme} />
+      {detail ? <NodeDependencies run={detail.run} node={detail.node} theme={theme} onSelectNode={onSelectNode} /> : null}
+      {task && agentId ? <WorkerInspector key={task.id} task={task} tasks={detail?.tasks ?? []} scope={{ agentId }} theme={theme} /> : null}
       {detail?.node.taskId ? (
         <Text style={styles.taskIdFooter}>Linked task ID: {detail.node.taskId}</Text>
       ) : null}
@@ -590,6 +604,8 @@ export function DagGraph({
           theme={theme}
           styles={styles}
           onClose={() => setSelectedId(null)}
+          onSelectNode={setSelectedId}
+          agentId={agentId}
         />
       ) : layout.nodes.length > 0 ? (
         <Text style={styles.hint}>Tap a node for details</Text>

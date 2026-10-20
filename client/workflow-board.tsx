@@ -1,8 +1,10 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Platform, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
-import type { DagRun, DagTask } from "../shared/dag.js";
-import { TaskDiagnostics } from "./task-diagnostics";
+import type { DagRun, DagTask, WorkerScope } from "../shared/dag.js";
+import { NodeDependencies, dependencyExplanation } from "./node-dependencies.js";
+import { WorkerInspector, workerGroup } from "./worker-inspector.js";
+import { TaskDiagnostics, activityAge } from "./task-diagnostics";
 import { stateColor, statusLabel } from "./graph-visual.js";
 import {
   COMPACT_WORKFLOW_METRICS,
@@ -25,6 +27,7 @@ export interface WorkflowBoardProps {
   subtasks: DagTask[];
   theme: PluginTheme;
   compact: boolean;
+  workerScope?: WorkerScope | undefined;
 }
 
 const EDGE_THICKNESS = 1.5;
@@ -88,6 +91,7 @@ export function WorkflowBoard({
   subtasks,
   theme,
   compact,
+  workerScope,
 }: WorkflowBoardProps): React.JSX.Element {
   const [viewportWidth, setViewportWidth] = useState(0);
   const [activityOpen, setActivityOpen] = useState(true);
@@ -158,7 +162,7 @@ export function WorkflowBoard({
             ]}
           >
             <Text style={[styles.drawerToggleText, { color: theme.colors.foreground }]}>
-              Subtasks {subtasks.length}
+              Nested workers / other session work {subtasks.length}
               {runningSubtasks > 0 ? ` · ${runningSubtasks}` : ""} {drawerOpen ? "▸" : "◂"}
             </Text>
           </Pressable>
@@ -229,13 +233,13 @@ export function WorkflowBoard({
               ]
                 .filter(Boolean)
                 .join(" · ");
-              const routeLine = [task?.agent, task?.model].filter(Boolean).join(" · ");
+              const routeLine = [task?.agent ?? node.route, task?.model].filter(Boolean).join(" · ");
               const detailLine =
                 node.state === "failed" && node.error
                   ? node.error
                   : node.state === "running"
-                    ? (task?.progress ?? task?.description)
-                    : task?.description;
+                    ? activityAge(task, now)
+                    : dependencyExplanation(run, node) ?? task?.description;
               const quiet = node.state === "pending" || node.state === "blocked" || node.state === "scheduled";
               return (
                 <Pressable
@@ -349,6 +353,8 @@ export function WorkflowBoard({
             <Text style={[styles.inspectorLine, { color: theme.colors.accent }]}>{selectedTask.progress}</Text>
           ) : null}
           <TaskDiagnostics task={selectedTask} theme={theme} />
+          <NodeDependencies run={run} node={selected} theme={theme} onSelectNode={onSelectNode} />
+          {selectedTask ? <WorkerInspector key={selectedTask.id} task={selectedTask} tasks={[...tasksMap.values()]} scope={workerScope} theme={theme} /> : null}
           {selected.error ? (
             <Text style={[styles.inspectorLine, { color: theme.colors.statusDanger }]}>{selected.error}</Text>
           ) : null}
@@ -392,7 +398,7 @@ export function WorkflowBoard({
                     {entry.state === null || entry.state === "running" ? "" : ` — ${statusLabel(entry.state)}`}
                   </Text>
                   <Text style={[styles.activityTime, { color: theme.colors.foregroundMuted }]}>
-                    {relativeTime(entry.at, now)}
+                    {entry.at === null ? "Time not recorded" : relativeTime(entry.at, now)}
                   </Text>
                 </Pressable>
               ))
@@ -408,17 +414,18 @@ export function WorkflowBoard({
           ]}
         >
           <Text style={[styles.drawerTitle, { color: theme.colors.foregroundMuted }]}>
-            Subtasks {subtasks.length}
+            Nested workers / other session work {subtasks.length}
           </Text>
           <ScrollView style={compact ? undefined : { maxHeight: Math.max(layout.height, 320) }}>
             {subtasks.map((task) => {
               const color = stateColor(task.status ?? "", theme);
               const elapsed = taskElapsed(task, now);
-              const meta = [taskLabel(task.status), elapsed === undefined ? undefined : shortDuration(elapsed), task.agent]
+              const meta = [taskLabel(task.status), elapsed === undefined ? undefined : shortDuration(elapsed), task.agent, task.model]
                 .filter(Boolean)
                 .join(" · ");
               return (
                 <View key={task.id} style={[styles.subtask, { borderColor: theme.colors.border }]}>
+                  <Text style={[styles.cardLine, { color: theme.colors.foregroundMuted }]}>{workerGroup(task, tasksMap, new Map(run.nodes.filter(n => n.taskId).map(n => [n.taskId!, n.label])))}</Text>
                   <View style={styles.cardTitleRow}>
                     <View style={[styles.dot, { backgroundColor: color }]} />
                     <Text
@@ -432,6 +439,7 @@ export function WorkflowBoard({
                   <Text style={[styles.cardLine, { color }]} numberOfLines={1} ellipsizeMode="tail">
                     {meta}
                   </Text>
+                  <WorkerInspector key={task.id} task={task} scope={workerScope} theme={theme} compact />
                   {task.status === "running" && task.progress ? (
                     <Text
                       style={[styles.cardLine, { color: theme.colors.foregroundMuted }]}
