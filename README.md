@@ -73,6 +73,11 @@ The previous card view is still one click away under **Cards**.
 
 ### Inspecting workers and waits
 
+When a native task resumes under a new run epoch, its existing subagent row
+becomes running again, including after it was archived as finished. Later turns
+keep distinct result IDs; reconnecting does not duplicate recorded output. This
+reflects native task state without resuming work or changing DAG scheduling.
+
 Select a node to see its owning worker and explicit nested workers, with **Open
 worker output** for a read-only excerpt of recorded assistant text and tool
 results. The viewer stays inside the DAG; it does not start, attach to or prompt

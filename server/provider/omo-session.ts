@@ -16,7 +16,7 @@ import { type OmoEvent, OmoProcess } from "./omo-process.js";
 import { todoItems, toolCallDetail, toolResultText } from "./tool-detail.js";
 import { finalTodoPublication, holdTodo, type TodoPublishItem } from "./todo-publish.js";
 import { lastPublishedTodo, rememberPublishedTodo } from "./todo-memory.js";
-import { isTerminalTask, readTaskRecords, taskChildEvents, type TaskState } from "./task-watch.js";
+import { isTerminalTask, readTaskRecords, taskChildEvents, taskHasResumed, type TaskState } from "./task-watch.js";
 import { TaskTranscriptReader } from "./task-transcript.js";
 import {
   foldWakeEvent,
@@ -586,14 +586,15 @@ export class OmoSession {
     try {
       for (const record of await readTaskRecords(cwd, omoSessionId, this.sessionEnv())) {
         if (this.closed) return;
-        if (this.taskStates.get(record.task_id)?.closed) continue;
+        const previous = this.taskStates.get(record.task_id);
+        if (previous?.closed && !taskHasResumed(record, previous)) continue;
         const transcript = await this.taskTranscripts.read(cwd, record, this.sessionEnv());
         if (this.closed) return;
         const { events, state } = taskChildEvents({
           record,
           parentSessionId: this.sessionId,
           cwd,
-          previous: this.taskStates.get(record.task_id),
+          previous,
           transcript,
         });
         this.taskStates.set(record.task_id, state);

@@ -98,3 +98,19 @@ it("rejects task paths outside the task store", async () => {
   const f = await fixture();
   await expect(new TaskTranscriptReader().read(context.cwd, { ...record, task_id: "../../outside" }, f.env)).rejects.toThrow("Invalid task id");
 });
+
+it("publishes resumed worker output and tool updates without replaying earlier messages", async () => {
+  const f = await fixture(); const reader = new TaskTranscriptReader();
+  await writeFile(f.file, line("a", { role: "assistant", content: [{ type: "text", text: "Original output" }] }));
+  const done = { ...record, status: "completed", run_start_epoch: 0 };
+  const first = taskChildEvents({ ...context, record: done, transcript: await reader.read(context.cwd, done, f.env), previous: undefined });
+  await appendFile(f.file, line("b", { role: "assistant", content: [{ type: "text", text: "Resumed output" }, { type: "toolCall", id: "resumed-tool", name: "read", arguments: {} }] }));
+  const resumed = { ...record, run_start_epoch: 1 };
+  const next = taskChildEvents({ ...context, record: resumed, transcript: await reader.read(context.cwd, resumed, f.env), previous: first.state });
+  expect(JSON.stringify(next.events)).toContain("Resumed output");
+  expect(JSON.stringify(next.events)).not.toContain("Original output");
+  await appendFile(f.file, line("c", { role: "toolResult", toolCallId: "resumed-tool", content: [{ type: "text", text: "Resumed tool result" }] }));
+  const final = taskChildEvents({ ...context, record: { ...resumed, status: "completed" }, transcript: await reader.read(context.cwd, resumed, f.env), previous: next.state });
+  expect(final.events).toContainEqual(expect.objectContaining({ type: "timeline.item", item: expect.objectContaining({ type: "tool_call", status: "completed", detail: expect.objectContaining({ content: "Resumed tool result" }) }) }));
+  expect(JSON.stringify(final.events)).not.toContain("Original output");
+});
