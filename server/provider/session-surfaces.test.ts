@@ -30,13 +30,13 @@ test("native global and project skills appear as supported slash commands", asyn
   mocks.commands = [{ name: "goal", description: "Goal", syntax: "slash" }, { name: "skill:code-review", description: "Review code", syntax: "dollar" }, { name: "skill:voxetra-qa-recovery", description: "Recover QA", syntax: "dollar" }];
   const f = setup(); await f.session.open("open", "skip");
   const event = f.events.find(e => e.type === "session.commands");
-  expect(event).toMatchObject({ commands: [expect.objectContaining({ name: "goal" }), expect.objectContaining({ name: "skill:code-review" }), expect.objectContaining({ name: "skill:voxetra-qa-recovery" })] });
+  expect(event).toMatchObject({ commands: expect.arrayContaining([expect.objectContaining({ name: "goal" }), expect.objectContaining({ name: "skill:code-review" }), expect.objectContaining({ name: "skill:voxetra-qa-recovery" })]) });
 });
 
 test("native resource reload updates the skill menu without a restart", () => {
   const f = setup();
   f.process.emit({ type: "commands_changed", commands: [{ name: "skill:voxetra-release", syntax: "dollar", description: "Release" }] });
-  expect(f.events).toContainEqual(expect.objectContaining({ type: "session.commands", commands: [expect.objectContaining({ name: "skill:voxetra-release" })] }));
+  expect(f.events).toContainEqual(expect.objectContaining({ type: "session.commands", commands: expect.arrayContaining([expect.objectContaining({ name: "skill:voxetra-release" })]) }));
 });
 
 test("opening a restored session publishes native context usage", async () => {

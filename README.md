@@ -81,6 +81,25 @@ And a turn that worked through a checklist ends with a single todo card:
 
 <img src="docs/images/chat-todo.png" width="720" alt="One todo card at the end of a turn: two items done, one in progress">
 
+## Compacting a session
+
+Start a message with `/compact` to summarize older conversation context while
+retaining recent work. Optional text after the command focuses the summary:
+
+```text
+/compact Preserve decisions, unresolved failures, file paths and remaining tasks
+```
+
+This calls OmO's native compaction RPC. It uses the configured summarization
+route and can consume provider allowance. The plugin refuses compaction during
+an active turn or when background work is active or unreadable, because native
+manual compaction would otherwise abort the current agent operation.
+
+The context indicator refreshes after compaction. Native context usage can be
+unknown until the next assistant response; the completion message labels the
+immediate retained-token estimate as an estimate. Stop cancels compaction rather
+than sending a new model prompt.
+
 ## On your phone
 
 The board is the same board on a phone — same cards, same flow — and it scrolls

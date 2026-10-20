@@ -337,6 +337,9 @@ export class OmoSession {
   private turnSeq = 0;
   private messageSeq = 0;
   private activeTurnId: string | null = null;
+  /** Manual compaction owns its turn until the dedicated RPC settles. */
+  private manualCompactionTurn: string | undefined;
+  private canceledCompactionTurn: string | undefined;
   private readonly textBuffers = new Map<string, string>();
   private readonly flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly toolCalls = new Map<string, { name: string; args: unknown }>();
@@ -648,7 +651,7 @@ export class OmoSession {
    * quiet signal goes through the same probe.
    */
   private startSettle(event: OmoEvent | undefined): void {
-    if (this.closed || this.activeTurnId === null) return;
+    if (this.closed || this.activeTurnId === null || this.manualCompactionTurn !== undefined) return;
     if (event !== undefined) this.settleEvent = event;
     this.settleGeneration += 1;
     this.pendingSettle = this.settle(this.settleGeneration).catch((error: unknown) => {
@@ -799,10 +802,10 @@ export class OmoSession {
       sessionId: this.sessionId,
       // Senpi labels skills as dollar commands but still accepts /skill:name.
       // Paseo's slash menu can expose that supported legacy invocation.
-      commands: this.commands.filter(command => command.syntax !== "dollar" || command.name.startsWith("skill:")).map((command) => ({
+      commands: [...this.commands.filter(command => command.name !== "compact" && (command.syntax !== "dollar" || command.name.startsWith("skill:"))).map((command) => ({
         name: command.name,
         description: command.description ?? `OmO ${command.name}`,
-      })),
+      })), { name: "compact", description: "Summarize older context while retaining recent work (session must be idle)", argumentHint: "[instructions]" }],
     });
   }
 
@@ -900,6 +903,26 @@ export class OmoSession {
   // ---------------------------------------------------------------- prompting
 
   prompt(clientMessageId: string, text: string, images: Array<{ data: string; mimeType: string }>, steer: boolean): void {
+    if (this.manualCompactionTurn !== undefined) {
+      this.rejectPrompt(clientMessageId, "Context compaction is in progress. Wait for it to finish before sending another message.");
+      return;
+    }
+    const compact = /^\/compact(?:\s+([\s\S]*))?$/.exec(text);
+    if (compact) {
+      if (this.closed || this.suspended || this.activeTurnId !== null || steer || images.length > 0) {
+        this.rejectPrompt(clientMessageId, "Use /compact without attachments after the session and background work have finished. Running work will not be interrupted.");
+        return;
+      }
+      this.clearHold();
+      const turnId = `turn-${++this.turnSeq}`;
+      this.activeTurnId = turnId;
+      this.manualCompactionTurn = turnId;
+      this.publishVisibleText("user", `user-${this.turnSeq}`, text, { clientMessageId });
+      this.emit({ type: "session.prompt_result", sessionId: this.sessionId, clientMessageId, result: { type: "turn", turnId } });
+      this.emit({ type: "session.turn", sessionId: this.sessionId, turnId, state: "started" });
+      void this.compactContext(turnId, compact[1]?.trim());
+      return;
+    }
     if (steer) {
       if (!this.activeTurnId) {
         this.emit({
@@ -942,6 +965,41 @@ export class OmoSession {
     this.item({ type: "error", id: `error-steer-${clientMessageId}`, message: describe(error) });
   }
 
+  private rejectPrompt(clientMessageId: string, message: string): void {
+    this.emit({ type: "session.prompt_result", sessionId: this.sessionId, clientMessageId, result: { type: "failed", error: { message } } });
+  }
+
+  private async compactContext(turnId: string, instructions: string | undefined): Promise<void> {
+    const current = () => !this.closed && !this.suspended && this.activeTurnId === turnId;
+    try {
+      // AgentSession.compact() aborts running work: never call it until the
+      // existing fail-closed occupancy probe confirms the session is idle.
+      const probe = await this.probeOccupancy();
+      if (!current()) return;
+      if (probe.occupied) throw new Error(probe.problem ?? "Background work is still active. Wait for it to finish before compacting.");
+      const result = await this.proc.call<Json>("compact", instructions ? { customInstructions: instructions } : {}, 30 * 60 * 1000);
+      if (!current()) return;
+      this.contextVersion += 1;
+      this.publishContextUsage({ model: { contextWindow: this.usage.contextWindowMaxTokens } });
+      this.refreshContextUsage();
+      const estimate = typeof result?.estimatedTokensAfter === "number" && Number.isFinite(result.estimatedTokensAfter) && result.estimatedTokensAfter >= 0
+        ? ` Estimated retained context: ${Math.round(result.estimatedTokensAfter).toLocaleString("en-US")} tokens.` : "";
+      this.item({ type: "assistant_message", id: `${turnId}-compact`, text: `Context compacted.${estimate}` });
+      this.completeTurn(undefined);
+    } catch (error) {
+      if (current()) {
+        if (this.canceledCompactionTurn === turnId) this.cancelCompactionTurn(turnId);
+        else {
+          this.item({ type: "error", id: `${turnId}-compact-error`, message: describe(error) });
+          this.failTurn(turnId, describe(error));
+        }
+      }
+    } finally {
+      if (this.manualCompactionTurn === turnId) this.manualCompactionTurn = undefined;
+      if (this.canceledCompactionTurn === turnId) this.canceledCompactionTurn = undefined;
+    }
+  }
+
   private failTurn(turnId: string, message: string): void {
     if (this.activeTurnId !== turnId) return;
     this.clearHold();
@@ -950,7 +1008,21 @@ export class OmoSession {
   }
 
   async interrupt(): Promise<void> {
-    await this.proc.call("abort", {}, 30_000);
+    const turnId = this.manualCompactionTurn;
+    if (turnId === undefined) {
+      await this.proc.call("abort", {}, 30_000);
+      return;
+    }
+    this.canceledCompactionTurn = turnId;
+    await this.proc.call("abort_compaction", {}, 30_000);
+    this.cancelCompactionTurn(turnId);
+  }
+
+  private cancelCompactionTurn(turnId: string): void {
+    if (this.activeTurnId !== turnId || this.closed) return;
+    this.clearHold();
+    this.activeTurnId = null;
+    this.emit({ type: "session.turn", sessionId: this.sessionId, turnId, state: "canceled" });
   }
 
   /** True while this session has no child process, i.e. between suspend and resume. */
@@ -1215,6 +1287,7 @@ export class OmoSession {
           this.publishCommands();
         }
         return;
+      case "compaction_end":
       case "auto_compaction_end":
         this.contextVersion += 1;
         this.publishContextUsage({ model: { contextWindow: this.usage.contextWindowMaxTokens } });
