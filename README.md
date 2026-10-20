@@ -271,6 +271,11 @@ the daemon pick up the new code.
 ## Recorded node details and monitoring
 
 Selecting a node opens the same inspector in the board, cards and chat graph.
+Worker output preserves assistant/tool boundaries: assistant text has basic
+headings, lists, bold/inline code and fenced code; tool results are collapsed
+by default and expand as literal monospace logs/code. Explicit call IDs pair
+results, with partial/error/missing-call states labelled. No HTML rendering,
+image fetching, prompts, hidden context, reasoning or tool arguments are added.
 Execution, routing, activity, dependencies, bounded result previews, recorded
 model attempts/diagnostics and explicitly linked workers are grouped separately.
 Observed effective models are distinguished from planned or spawn-resolved routes;
