@@ -84,3 +84,47 @@ test("old matching text outside the retained excerpt cannot hide the saved final
   await writeFile(f.taskFile, JSON.stringify({ ...f.task, status: "completed", final_response: "Final answer" }));
   const result = await f.read(); expect(result.truncated).toBe(true); expect(result.text.endsWith("Final answer")).toBe(true);
 });
+
+test("assistant and tool output retain structure instead of becoming one raw text block", async () => {
+  const f = await fixture();
+  await writeFile(f.file, entry("assistant", [
+    { type: "text", text: "**Checking** the implementation." },
+    { type: "toolCall", id: "call-grep", name: "grep", arguments: { secret: "PRIVATE ARGS" } },
+  ]) + entry("toolResult", [{ type: "text", text: "42-  def handler():\n43-      return True\n[grep: matches=1]" }], { toolCallId: "call-grep", toolName: "grep", isError: false })
+    + entry("assistant", [{ type: "text", text: "The check passed." }]));
+  const result = await f.read();
+  expect(result).toHaveProperty("entries");
+  expect(result.entries).toEqual([
+    expect.objectContaining({ type: "assistant", text: "**Checking** the implementation." }),
+    expect.objectContaining({ type: "tool_call", toolName: "grep", toolCallId: "call-grep" }),
+    expect.objectContaining({ type: "tool_result", toolName: "grep", toolCallId: "call-grep", isError: false, text: expect.stringContaining("42-") }),
+    expect.objectContaining({ type: "assistant", text: "The check passed." }),
+  ]);
+  expect(JSON.stringify(result)).not.toContain("PRIVATE ARGS");
+});
+
+test("structured IDs survive append and reconnect reads, and retained entries remain bounded", async () => {
+  const f = await fixture(); await writeFile(f.file, entry("assistant", "Original"));
+  const first = await f.read();
+  await appendFile(f.file, entry("toolResult", [{ type: "text", text: "code\n".repeat(3000) }], { toolCallId: "call-x", toolName: "eval", isError: true }));
+  const second = await f.read();
+  expect(second.entries?.[0]?.id).toBe(first.entries?.[0]?.id);
+  expect(second.entries?.[1]).toMatchObject({ type: "tool_result", isError: true, truncated: true });
+  expect(second.entries?.[1]?.text.length).toBeLessThanOrEqual(8000);
+  expect(second).toEqual(await f.read());
+  await writeFile(f.file, Array.from({ length: 120 }, (_, i) => entry("assistant", `Message ${i}`)).join(""));
+  const limited = await f.read();expect(limited.entries).toHaveLength(80);expect(limited.truncated).toBe(true);
+  expect(limited.entries?.[0]?.text).toBe("Message 40");
+});
+
+test("structured messages preserve privacy filtering and terminal final text exactly once", async () => {
+  const f = await fixture();
+  await writeFile(f.file, entry("assistant", [
+    { type: "thinking", thinking: "PRIVATE" }, { type: "text", text: "PRIVATE", audience: "model" },
+    { type: "text", text: "**Finished**" }, { type: "toolCall", id: "call-x", name: "read", arguments: { text: "PRIVATE" } },
+  ]));
+  await writeFile(f.taskFile, JSON.stringify({ ...f.task, status: "completed", final_response: "**Finished**" }));
+  const result = await f.read();expect(JSON.stringify(result)).not.toContain("PRIVATE");
+  expect(result.entries?.filter(e => e.text === "**Finished**")).toHaveLength(1);
+  expect(result.entries?.at(-1)?.type).toBe("final");
+});

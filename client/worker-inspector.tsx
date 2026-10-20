@@ -2,7 +2,8 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { WorkerOutputView } from "./worker-output-view.js";
 import { workerOutputRpc, type DagTask, type WorkerScope } from "../shared/dag.js";
 
 export function workerGroup(task: DagTask, tasks: Map<string, DagTask>, nodeTasks: Map<string, string>): string {
@@ -65,7 +66,7 @@ export function WorkerInspector({ task, tasks = [], scope, theme, compact = fals
       {query.data ? <>
         {query.data.warning ? <Text style={{ color: theme.colors.statusWarning }}>{query.data.warning}</Text> : null}
         {query.data.truncated ? <Text style={{ color: theme.colors.foregroundMuted }}>Showing a bounded excerpt of recent output.</Text> : null}
-        <ScrollView style={{ maxHeight: 320 }}><Text selectable style={{ color: theme.colors.foreground }}>{query.data.text || "No recorded output is available yet."}</Text></ScrollView>
+        <WorkerOutputView key={selectedTask.id} output={query.data} theme={theme} />
       </> : null}
     </View> : null}
   </View>;

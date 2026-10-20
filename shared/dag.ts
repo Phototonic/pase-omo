@@ -129,6 +129,17 @@ export type DagSessionsPayload = z.infer<typeof listSessionsRpc.output>;
 export type DagSnapshotInput = z.infer<typeof getSnapshotRpc.input>;
 export type DagSnapshotPayload = z.infer<typeof getSnapshotRpc.output>;
 
+export const WorkerOutputEntrySchema = z.object({
+  id: z.string().max(80),
+  type: z.enum(["assistant", "tool_call", "tool_result", "final"]),
+  text: z.string().max(8000),
+  toolName: z.string().max(128).optional(),
+  toolCallId: z.string().max(256).optional(),
+  isError: z.boolean().optional(),
+  truncated: z.boolean().optional(),
+});
+export type WorkerOutputEntry = z.infer<typeof WorkerOutputEntrySchema>;
+
 /** Read-only output for a worker verified to belong to this session. */
 export const workerOutputRpc = defineRpc({
   name: "dag.worker-output",
@@ -141,6 +152,8 @@ export const workerOutputRpc = defineRpc({
   output: z.object({
     taskId: z.string(),
     text: z.string(),
+    /** Optional for older hosts; new readers preserve message/tool boundaries. */
+    entries: z.array(WorkerOutputEntrySchema).max(80).optional(),
     truncated: z.boolean(),
     warning: z.string().optional(),
   }),
