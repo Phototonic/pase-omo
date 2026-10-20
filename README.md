@@ -198,6 +198,21 @@ the daemon pick up the new code.
 
 ---
 
+## Recorded node details and monitoring
+
+Selecting a node opens the same inspector in the board, cards and chat graph.
+Execution, routing, activity, dependencies, bounded result previews, recorded
+model attempts/diagnostics and explicitly linked workers are grouped separately.
+Observed effective models are distinguished from planned or spawn-resolved routes;
+reasoning is displayed only when recorded. Attachment counts and execution
+attempts are separate native counters, not an inferred count of user retries.
+Missing timestamps, results and per-attempt timelines remain explicitly unknown.
+
+The board and cards show done/running/waiting/paused/failed/cancelled/skipped
+counts separately. **Focus running** and **Selected + dependencies** dim unrelated
+nodes without hiding them or changing graph positions. **Show all** clears focus.
+Focus is presentation only: it never starts, resumes, stops or retries work.
+
 ## Development
 
 ```bash

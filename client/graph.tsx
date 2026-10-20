@@ -1,5 +1,4 @@
-import { NodeDependencies } from "./node-dependencies.js";
-import { WorkerInspector } from "./worker-inspector.js";
+import { NodeInspectorContent } from "./node-inspector.js";
 import type { DagRun } from "../shared/dag.js";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -10,7 +9,6 @@ import { agentDagSnapshotRpc, type DagRow } from "../shared/row";
 import { formatDuration, formatKoreanDateTime } from "./dag";
 import { COMPACT_GRAPH_METRICS, DEFAULT_GRAPH_METRICS, layoutGraph, type GraphNode } from "./graph-layout";
 import { OpenInDagButton } from "./open-in-dag";
-import { TaskDiagnostics } from "./task-diagnostics";
 import {
   edgeVisual,
   fitsStateLine,
@@ -296,32 +294,6 @@ function useNodeDetail(input: {
   return detail;
 }
 
-function DetailField({
-  label,
-  value,
-  styles,
-  wide,
-}: {
-  label: string;
-  value: string;
-  styles: ReturnType<typeof createStyles>;
-  wide?: boolean;
-}) {
-  return (
-    <View style={wide === true ? styles.detailItem : styles.detailGridItem}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
-    </View>
-  );
-}
-
-/**
- * The panel's node inspector, in the space a chat row has.
- *
- * Same fields and same labels as the workspace panel, because the point of
- * tapping a node on a phone is to get the answer the desktop gives rather than
- * a smaller different one.
- */
 function NodeInspector({
   row,
   nodeId,
@@ -343,11 +315,6 @@ function NodeInspector({
 }) {
   const chips = useMemo(() => row.layers.flat(), [row.layers]);
   const chip = chips.find((candidate) => candidate.id === nodeId);
-  const labelOf = (id: string): string => chips.find((candidate) => candidate.id === id)?.label ?? id;
-
-  const wave = row.layers.findIndex((layer) => layer.some((candidate) => candidate.id === nodeId));
-  const upstream = row.edges.filter((edge) => edge.to === nodeId).map((edge) => labelOf(edge.from));
-  const downstream = row.edges.filter((edge) => edge.from === nodeId).map((edge) => labelOf(edge.to));
 
   const task = detail?.task;
   const attempt = detail?.node.attempt ?? 0;
@@ -361,7 +328,7 @@ function NodeInspector({
           </Text>
           <Text style={styles.inspectorSub} numberOfLines={1} ellipsizeMode="tail">
             {nodeId}
-            {attempt > 0 ? ` · attempt ${attempt + 1}` : ""}
+            {attempt > 0 ? ` · attempt ${attempt}` : ""}
           </Text>
         </View>
         <Pressable
@@ -374,65 +341,9 @@ function NodeInspector({
         </Pressable>
       </View>
 
-      {detail?.node.error ? (
-        <View style={styles.errorBox}>
-          <Text style={styles.errorTitle}>Error</Text>
-          <Text style={styles.errorText}>{detail.node.error}</Text>
-        </View>
-      ) : null}
-
-      {task?.description ? (
-        <DetailField label="Description" value={task.description} styles={styles} wide />
-      ) : null}
-
-      <View style={styles.detailGrid}>
-        <View style={styles.detailGridItem}>
-          <Text style={styles.detailLabel}>Status</Text>
-          <Text style={[styles.detailValue, { color: nodeVisual(chip?.state ?? "pending", theme).borderColor }]}>
-            {statusLabel(chip?.state ?? "pending")}
-          </Text>
-        </View>
-        {wave >= 0 ? <DetailField label="Wave" value={`stage ${wave + 1}`} styles={styles} /> : null}
-        {task?.agent ? <DetailField label="Agent" value={task.agent} styles={styles} /> : null}
-        {task?.model ? <DetailField label="Model" value={task.model} styles={styles} /> : null}
-        {task?.turns !== undefined ? (
-          <DetailField label="Turns" value={`${task.turns} turns`} styles={styles} />
-        ) : null}
-        {task?.toolCalls !== undefined ? (
-          <DetailField label="Tool calls" value={`${task.toolCalls}`} styles={styles} />
-        ) : null}
-        {task?.startedAt ? (
-          <DetailField
-            label="Elapsed"
-            value={formatDuration(task.startedAt, task.completedAt)}
-            styles={styles}
-          />
-        ) : null}
-        {task?.startedAt ? (
-          <DetailField label="Started" value={formatKoreanDateTime(task.startedAt)} styles={styles} />
-        ) : null}
-      </View>
-
-      {upstream.length > 0 ? (
-        <DetailField label="Upstream" value={upstream.join(", ")} styles={styles} wide />
-      ) : null}
-      {downstream.length > 0 ? (
-        <DetailField label="Downstream" value={downstream.join(", ")} styles={styles} wide />
-      ) : null}
-
-      {task?.progress ? (
-        <View style={styles.progressBox}>
-          <Text style={styles.progressLabel}>Progress</Text>
-          <Text style={styles.progressText}>{task.progress}</Text>
-        </View>
-      ) : null}
-
-      <TaskDiagnostics task={task} theme={theme} />
-      {detail ? <NodeDependencies run={detail.run} node={detail.node} theme={theme} onSelectNode={onSelectNode} /> : null}
-      {task && agentId ? <WorkerInspector key={task.id} task={task} tasks={detail?.tasks ?? []} scope={{ agentId }} theme={theme} /> : null}
-      {detail?.node.taskId ? (
-        <Text style={styles.taskIdFooter}>Linked task ID: {detail.node.taskId}</Text>
-      ) : null}
+      {detail ? <NodeInspectorContent run={detail.run} node={detail.node} task={task} tasks={detail.tasks}
+        scope={agentId ? { agentId } : undefined} theme={theme} onSelectNode={onSelectNode} />
+        : <Text style={styles.inspectorSub}>Recorded details are not available.</Text>}
     </View>
   );
 }
