@@ -1,5 +1,5 @@
-import { NodeDependencies } from "./node-dependencies.js";
-import { WorkerInspector } from "./worker-inspector.js";
+import { NodeInspectorContent } from "./node-inspector.js";
+import { WorkflowMonitor, focusedNodes, type FocusMode } from "./workflow-monitor.js";
 import type { WorkerScope } from "../shared/dag.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PluginTheme } from "@getpaseo/plugin";
@@ -11,7 +11,6 @@ import {
   type PluginWorkspacePanelProps,
 } from "@getpaseo/plugin/client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TaskDiagnostics } from "./task-diagnostics";
 import {
   ActivityIndicator,
   Pressable,
@@ -1403,6 +1402,9 @@ export function DagRunCard({
   compact,
   workerScope,
 }: DagRunCardProps): React.JSX.Element {
+  const [focus, setFocus] = useState<{ run: string; mode: FocusMode }>({ run: run.id, mode: "all" });
+  const mode = focus.run === run.id ? focus.mode : "all";
+  const visible = focusedNodes(run, mode, selectedNodeId);
   const isFolded = !isRunExpanded(run.id, foldedRuns);
   const statusColor = getStatusColor(run.status, theme);
   const statusLabel = getStatusLabel(run.status);
@@ -1453,9 +1455,7 @@ export function DagRunCard({
     ? run.nodes.find((n) => n.id === selectedNodeId)
     : undefined;
   const selectedTask = selectedNode?.taskId ? tasksMap.get(selectedNode.taskId) : undefined;
-  const selectedTaskChildren = selectedNode?.taskId
-    ? childTasksMap.get(selectedNode.taskId) ?? []
-    : [];
+
 
   return (
     <View
@@ -1511,6 +1511,7 @@ export function DagRunCard({
         </Text>
       </Pressable>
 
+      <WorkflowMonitor run={run} selected={selectedNodeId} mode={mode} onChange={mode => setFocus({ run: run.id, mode })} theme={theme} />
       {/* Progress Bar */}
       <View
         style={[
@@ -1605,6 +1606,7 @@ export function DagRunCard({
                           width: seg.width,
                           height: seg.height,
                           backgroundColor: theme.colors.border,
+                          opacity: !visible.has(edge.from) || !visible.has(edge.to) ? 0.15 : 1,
                         },
                       ]}
                     />
@@ -1617,6 +1619,7 @@ export function DagRunCard({
                         left: edge.arrow.x,
                         top: edge.arrow.y,
                         color: theme.colors.foregroundMuted,
+                        opacity: !visible.has(edge.from) || !visible.has(edge.to) ? 0.15 : 1,
                       },
                     ]}
                   >
@@ -1657,7 +1660,7 @@ export function DagRunCard({
                           ? theme.colors.accent
                           : theme.colors.border,
                         borderWidth: isSelected ? 2 : 1,
-                        opacity: pressed ? 0.85 : 1,
+                        opacity: !visible.has(item.node.id) ? 0.3 : pressed ? 0.85 : 1,
                       },
                     ]}
                   >
@@ -1773,157 +1776,8 @@ export function DagRunCard({
                 </Pressable>
               </View>
 
-              {/* Error Message */}
-              {selectedNode.error ? (
-                <View
-                  style={[
-                    styles.nodeErrorBox,
-                    {
-                      backgroundColor: theme.colors.surface1,
-                      borderColor: theme.colors.statusDanger,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.nodeErrorTitle, { color: theme.colors.statusDanger }]}>
-                    Error
-                  </Text>
-                  <Text style={[styles.nodeErrorText, { color: theme.colors.foreground }]}>
-                    {selectedNode.error}
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* Task Details */}
-              {selectedTask?.description ? (
-                <View style={styles.detailItem}>
-                  <Text style={[styles.detailLabel, { color: theme.colors.foregroundMuted }]}>
-                    Description
-                  </Text>
-                  <Text style={[styles.detailValue, { color: theme.colors.foreground }]}>
-                    {selectedTask.description}
-                  </Text>
-                </View>
-              ) : null}
-
-              <View style={[styles.detailGrid, compact && styles.detailGridCompact]}>
-                {selectedTask?.agent ? (
-                  <View style={[styles.detailGridItem, compact && styles.detailGridItemCompact]}>
-                    <Text style={[styles.detailLabel, { color: theme.colors.foregroundMuted }]}>
-                      Agent
-                    </Text>
-                    <Text style={[styles.detailValue, { color: theme.colors.foreground }]}>
-                      {selectedTask.agent}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {selectedTask?.model ? (
-                  <View style={[styles.detailGridItem, compact && styles.detailGridItemCompact]}>
-                    <Text style={[styles.detailLabel, { color: theme.colors.foregroundMuted }]}>
-                      Model
-                    </Text>
-                    <Text style={[styles.detailValue, { color: theme.colors.foreground }]}>
-                      {selectedTask.model}
-                    </Text>
-                    {selectedTask.modelRef ? <Text style={[styles.detailValue, { color: theme.colors.foregroundMuted }]}>{`Model ID: ${selectedTask.modelRef}`}</Text> : null}
-                    {selectedTask.requestedModel ? <Text style={[styles.detailValue, { color: theme.colors.foregroundMuted }]}>{`Requested model: ${selectedTask.requestedModel}`}</Text> : null}
-                    {selectedTask.resolvedModel ? <Text style={[styles.detailValue, { color: theme.colors.foregroundMuted }]}>{`Initial route: ${selectedTask.resolvedModel}`}</Text> : null}
-                  </View>
-                ) : null}
-
-                {selectedTask?.turns !== undefined ? (
-                  <View style={[styles.detailGridItem, compact && styles.detailGridItemCompact]}>
-                    <Text style={[styles.detailLabel, { color: theme.colors.foregroundMuted }]}>
-                      Turns
-                    </Text>
-                    <Text style={[styles.detailValue, { color: theme.colors.foreground }]}>
-                      {selectedTask.turns} turns
-                    </Text>
-                  </View>
-                ) : null}
-
-                {selectedTask?.toolCalls !== undefined ? (
-                  <View style={[styles.detailGridItem, compact && styles.detailGridItemCompact]}>
-                    <Text style={[styles.detailLabel, { color: theme.colors.foregroundMuted }]}>
-                      Tool calls
-                    </Text>
-                    <Text style={[styles.detailValue, { color: theme.colors.foreground }]}>
-                      {selectedTask.toolCalls}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {selectedTask?.startedAt ? (
-                  <View style={[styles.detailGridItem, compact && styles.detailGridItemCompact]}>
-                    <Text style={[styles.detailLabel, { color: theme.colors.foregroundMuted }]}>
-                      Elapsed
-                    </Text>
-                    <Text style={[styles.detailValue, { color: theme.colors.foreground }]}>
-                      {formatDuration(selectedTask.startedAt, selectedTask.completedAt)}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {selectedTask?.startedAt ? (
-                  <View style={[styles.detailGridItem, compact && styles.detailGridItemCompact]}>
-                    <Text style={[styles.detailLabel, { color: theme.colors.foregroundMuted }]}>
-                      Started
-                    </Text>
-                    <Text style={[styles.detailValue, { color: theme.colors.foreground }]}>
-                      {formatKoreanDateTime(selectedTask.startedAt)}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
-              {selectedTask?.progress ? (
-                <View
-                  style={[
-                    styles.liveProgressBox,
-                    {
-                      backgroundColor: theme.colors.surface1,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.liveProgressLabel, { color: theme.colors.accent }]}>
-                    Progress
-                  </Text>
-                  <Text style={[styles.liveProgressText, { color: theme.colors.foreground }]}>
-                    {selectedTask.progress}
-                  </Text>
-                </View>
-              ) : null}
-
-              <TaskDiagnostics task={selectedTask} theme={theme} />
-              <NodeDependencies run={run} node={selectedNode} theme={theme} onSelectNode={onSelectNode} />
-              {selectedTask ? <WorkerInspector key={selectedTask.id} task={selectedTask} tasks={[...tasksMap.values()]} scope={workerScope} theme={theme} /> : null}
-              {selectedNode.taskId ? (
-                <Text style={[styles.taskIdFooter, { color: theme.colors.foregroundMuted }]}>
-                  Linked task ID: {selectedNode.taskId}
-                </Text>
-              ) : null}
-
-              {/* Linked Task Subtasks */}
-              {selectedTaskChildren.length > 0 ? (
-                <View style={styles.childTasksContainer}>
-                  <Text style={[styles.childTasksHeader, { color: theme.colors.foregroundMuted }]}>
-                    Subtasks ({selectedTaskChildren.length})
-                  </Text>
-                  {selectedTaskChildren.map((child) => (
-                    <TaskItemCard
-                      key={child.id}
-                      task={child}
-                      childTasksMap={childTasksMap}
-                      foldedTasks={foldedTasks}
-                      onToggleTaskFold={onToggleTaskFold}
-                      theme={theme}
-                      compact={compact}
-                      depth={1}
-                    />
-                  ))}
-                </View>
-              ) : null}
+              <NodeInspectorContent run={run} node={selectedNode} task={selectedTask} tasks={[...tasksMap.values()]}
+                scope={workerScope} theme={theme} onSelectNode={onSelectNode} />
             </View>
           ) : (
             <Text style={[styles.graphInstructionText, { color: theme.colors.foregroundMuted }]}>

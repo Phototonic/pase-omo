@@ -13,13 +13,13 @@ export function activityAge(task: DagTask | undefined, now = Date.now()): string
 }
 
 /** Shared by board, cards and chat-popover inspectors. Counts are explicitly observed. */
-export function TaskDiagnostics({ task, theme }: { task: DagTask | undefined; theme: PluginTheme }) {
+export function TaskDiagnostics({ task, theme, hideTerminalReason = false }: { task: DagTask | undefined; theme: PluginTheme; hideTerminalReason?: boolean }) {
   if (!task) return null;
   const activity = task.lastActivityAt && Number.isFinite(Date.parse(task.lastActivityAt))
     ? new Date(task.lastActivityAt).toLocaleString() : undefined;
   return (
     <View style={{ gap: 6 }}>
-      {task.terminalReason ? <Text style={{ color: theme.colors.foreground }}>{`Reason: ${task.terminalReason}`}</Text> : null}
+      {task.terminalReason && !hideTerminalReason ? <Text style={{ color: theme.colors.foreground }}>{`Reason: ${task.terminalReason}`}</Text> : null}
       {task.observedToolCalls !== undefined && task.toolCalls === undefined
         ? <Text style={{ color: theme.colors.foregroundMuted }}>{`Observed tool calls: ${task.observedToolCalls}`}</Text> : null}
       {activity ? <Text style={{ color: theme.colors.foregroundMuted }}>{`Last recorded activity: ${activity}`}</Text> : null}

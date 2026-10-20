@@ -102,8 +102,25 @@ function modelFields(record: Json): Partial<DagTask> {
   const label = display ?? (id?.startsWith("gpt-")
     ? id.replace(/^gpt-(\d+(?:\.\d+)?)/, "GPT-$1").replace(/-(?=[a-z])/g, " ").replace(/\b[a-z]/g, c => c.toUpperCase())
     : id);
+  // Never inherit reasoning from a different model's stale resolution. A live
+  // model-change record without reasoning leaves it unknown, even on the same ID.
+  const route = hasEffective ? effective : resolved;
+  const reasoningOf = (model: Json | undefined) => text(model?.reasoning, 64) ?? text(model?.reasoning_effort, 64) ?? text(model?.variant, 64);
+  const liveChange = Boolean(effective?.change || effective?.switched_by_operator || ["set", "cycle", "restore", "fallback", "fallback-revert"].includes(String(effective?.source)));
+  const spawnCompatible = hasEffective && !liveChange && ref && ref === resolvedRef;
+  const reasoning = reasoningOf(route) ?? (spawnCompatible ? reasoningOf(resolved) : undefined);
+  const variant = text(route?.variant, 64) ?? (spawnCompatible ? text(resolved?.variant, 64) : undefined);
+  const attempts = Array.isArray(record.fallback_attempts) ? record.fallback_attempts : [];
+  const modelAttempts = attempts.slice(-20).flatMap(raw => {
+    const attempt = object(raw); const model = modelRef(attempt) ?? text(attempt?.display, 256);
+    return model ? [{ model, ...pick("reasoning", reasoningOf(attempt)), ...pick("variant", text(attempt?.variant, 64)) }] : [];
+  });
   return {
     ...pick("model", label),
+    ...pick("reasoning", reasoning),
+    ...pick("modelStage", ref || label ? hasEffective ? "effective" as const : resolvedRef || text(resolved?.display, 256) ? "resolved" as const : "planned" as const : undefined),
+    ...pick("variant", variant),
+    ...(attempts.length ? { modelAttempts, modelAttemptCount: attempts.length } : {}),
     ...pick("modelRef", ref),
     ...pick("requestedModel", requested && requested !== ref ? requested : undefined),
     ...pick("resolvedModel", resolvedRef && resolvedRef !== ref ? resolvedRef : undefined),
@@ -169,14 +186,29 @@ export function normalizeRun(raw: unknown): DagRun | undefined {
     if (typeof state !== "string" || !STATUSES.has(state as DagStatus)) return undefined;
     ids.add(node.id);
     const taskId = node.task_id ?? node.taskId;
+    const route = object(node.route);
+    const diagnostics = Array.isArray(record.diagnostics) ? record.diagnostics.filter(raw => object(raw)?.nodeId === node.id) : [];
+    const output = typeof node.output === "string" ? clean(node.output) : undefined;
+    const outputBytes = count(node.outputBytes ?? node.output_bytes);
     nodes.push({
       id: node.id,
       label: clean(node.label ?? node.id),
       state: state as DagStatus,
       attempt: count(node.attempt) ?? 0,
+      ...pick("execAttempt", count(node.execAttempt ?? node.exec_attempt)),
       ...(typeof taskId === "string" ? { taskId } : {}),
       error: clean(object(node.last_error)?.message ?? object(node.error)?.message ?? ""),
-      ...pick("route", text(object(node.route)?.category ?? object(node.route)?.agent, 128)),
+      ...pick("route", text(route?.category ?? route?.agent, 128)),
+      ...(route?.kind === "category" || route?.kind === "agent" ? { routeKind: route.kind } : {}),
+      ...pick("requestedModel", text(route?.model, 256)),
+      ...pick("startedAt", iso(node.startedAt ?? node.started_at)),
+      ...pick("completedAt", iso(node.completedAt ?? node.completed_at)),
+      ...(output === undefined ? {} : { outputPreview: output.slice(0, 2000), outputTruncated: output.length > 2000 || (outputBytes !== undefined && outputBytes > Buffer.byteLength(String(node.output), "utf8")) }),
+      ...pick("outputBytes", outputBytes),
+      ...(diagnostics.length ? { diagnostics: diagnostics.slice(-20).flatMap(raw => {
+        const d = object(raw); const message = text(d?.message, 1000);
+        return message ? [{ kind: text(d?.kind, 64) ?? "diagnostic", message, ...pick("at", iso(d?.at)) }] : [];
+      }), diagnosticCount: diagnostics.length } : {}),
     });
   }
 
